@@ -40,7 +40,7 @@
     pointer-events: none; text-shadow: 0 2px 12px rgba(0,0,0,.8); }
   #tiltBig .n { font-size: 96px; font-weight: 900; line-height: 1; color: var(--state); font-variant-numeric: tabular-nums; }
   #tiltBig .t { font-size: 20px; font-weight: 700; margin-top: 6px; }
-  .bottom { margin-top: auto; position: relative; padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
+  .bottom { margin-top: auto; position: relative; z-index: 10; padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
     background: linear-gradient(to top, rgba(11,15,20,.95), rgba(11,15,20,0)); display: flex; flex-direction: column; gap: 10px; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; }
   button { font: inherit; font-weight: 700; font-size: 15px; border: 0; border-radius: 12px; padding: 12px 14px;
@@ -58,7 +58,7 @@
   .ib.go.stop { background: var(--bad); border-color: var(--bad); }
   .meta { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
   #msg { background: var(--panel); border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.4; }
-  #done { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  #done { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
     background: rgba(11,15,20,.88); text-align: center; padding: 24px; }
   #done .big { font-size: 44px; font-weight: 900; line-height: 1.1; }
   #done .pct { font-size: 64px; font-weight: 900; font-variant-numeric: tabular-nums; line-height: 1; }
@@ -73,8 +73,8 @@
   #rep .t { font-size: 22px; font-weight: 700; margin-top: 8px; }
   #rep .ang { font-size: 16px; color: var(--muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
   .workout .top, .workout #frame { opacity: .35; }
-  #summary { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-    background: rgba(11,15,20,.92); text-align: center; padding: 24px; overflow: auto; }
+  #summary { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    background: rgba(11,15,20,.96); text-align: center; padding: calc(env(safe-area-inset-top,0px) + 24px) 20px calc(env(safe-area-inset-bottom,0px) + 32px); overflow: auto; justify-content: flex-start; }
   #summary .big { font-size: 30px; font-weight: 900; }
   #summary .pct { font-size: 96px; font-weight: 900; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
   #summary .sub { font-size: 15px; color: var(--muted); }
@@ -93,7 +93,7 @@
   .rows { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
   .kv { display: flex; justify-content: space-between; font-size: 16px; padding: 8px 12px; background: #141c26; border-radius: 10px; }
   .kv b { font-variant-numeric: tabular-nums; }
-  #replay { position: fixed; inset: 0; background: #0b0f14; display: flex; flex-direction: column; }
+  #replay { position: fixed; inset: 0; z-index: 40; background: #0b0f14; display: flex; flex-direction: column; }
   #rpVideo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
   #rpCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   .rpTop { position: relative; display: flex; justify-content: space-between; align-items: center; padding: calc(env(safe-area-inset-top,0px) + 12px) 16px 8px;
@@ -106,7 +106,7 @@
   .rpReps button.on { background: var(--accent); color: #0b0f14; }
   #rpBar { width: 100%; accent-color: var(--accent); }
   .legend2 { display: flex; gap: 12px; font-size: 12px; flex-wrap: wrap; }
-  #hist { position: fixed; inset: 0; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 16px) 16px 32px; overflow: auto;
+  #hist { position: fixed; inset: 0; z-index: 20; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 16px) 16px 32px; overflow: auto;
     display: flex; flex-direction: column; gap: 14px; }
   .hh { display: flex; gap: 12px; align-items: center; } .hh h1 { font-size: 26px; margin: 0; }
   .back { position: absolute; left: 16px; top: calc(env(safe-area-inset-top, 0px) + 12px); width: 48px; height: 48px; flex: 0 0 48px;
@@ -140,7 +140,7 @@
     background: #121a23; border: 1px solid #2a3642; flex: 0 0 auto; }
   .card.primary { background: var(--accent); border-color: var(--accent); }
   .card .ct { font-size: 22px; font-weight: 800; } .card .cs { font-size: 14px; opacity: .75; font-weight: 500; }
-  #settings { position: fixed; inset: 0; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 16px) 16px 32px; overflow: auto;
+  #settings { position: fixed; inset: 0; z-index: 20; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 16px) 16px 32px; overflow: auto;
     display: flex; flex-direction: column; gap: 12px; }
   .setRow { display: flex; justify-content: space-between; align-items: center; background: #121a23; border-radius: 12px; padding: 12px 14px; font-size: 16px; gap: 12px; }
   .setRow b { font-variant-numeric: tabular-nums; }
