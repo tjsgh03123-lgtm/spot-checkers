@@ -29,7 +29,7 @@
     transition: border-color .25s; }
   .top { position: relative; padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 12px;
     background: linear-gradient(to bottom, rgba(11,15,20,.9), rgba(11,15,20,0)); }
-  .gauges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .gauges { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .g { background: var(--panel); border-radius: 14px; padding: 10px 12px; backdrop-filter: blur(8px);
     border-left: 5px solid var(--muted); }
   .g.ok { border-left-color: var(--ok); } .g.warn { border-left-color: var(--warn); } .g.bad { border-left-color: var(--bad); }
@@ -235,7 +235,6 @@
   <div class="top" style="padding-top:calc(env(safe-area-inset-top, 0px) + 68px)">
     <div class="gauges">
       <div class="g" id="gTilt"><div class="k">기울기</div><div class="v" id="vTilt">--°</div><div class="h" id="hTilt">센서 대기</div></div>
-      <div class="g" id="gDist"><div class="k">화면 크기</div><div class="v" id="vDist">--</div><div class="h" id="hDist">사람 없음</div></div>
       <div class="g" id="gBody"><div class="k">필요 관절</div><div class="v" id="vBody">--</div><div class="h" id="hBody">사람 없음</div></div>
     </div>
   </div>
@@ -312,11 +311,11 @@ const $ = id => document.getElementById(id);
 // angle: the three joints (A-B-C, angle at B) the rep counter watches. up/down: angle thresholds for the two states.
 // A rep = leave UP → reach DOWN → return to UP. Between the thresholds is a dead band that stops flicker.
 const EX = {
-  squat:  { joints: [[23,24],[25,26],[27,28]], names: ["엉덩이","무릎","발목"], span: [0.35, 0.80], axis: "y",   tip: "측면 45°, 1.2~1.8m", up: 160, down: 100, label: "스쿼트", anchor: 2 },
+  squat:  { joints: [[23,24],[25,26],[27,28]], names: ["엉덩이","무릎","발목"], span: [0.35, 0.80], axis: "y",   tip: "측면 45°", up: 160, down: 100, label: "스쿼트", anchor: 2 },
   pushup: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.25, 0.70], axis: "max", tip: "측면, 폰 바닥 가까이", up: 150, down: 95, label: "푸시업", anchor: 2 },
-  curl:   { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y",   tip: "정면, 1~1.5m", up: 150, down: 60, label: "덤벨 컬", anchor: 0 },
+  curl:   { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y",   tip: "정면", up: 150, down: 60, label: "덤벨 컬", anchor: 0 },
   // both arms are loaded: rep angle = mean of both elbows, plus bar level / shoulder level / arm symmetry
-  pulldown: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y", tip: "정면, 1.5~2m, 양팔 다 보이게", up: 150, down: 70, label: "랫풀다운", anchor: 0, both: true },
+  pulldown: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y", tip: "정면, 양팔 다 보이게", up: 150, down: 70, label: "랫풀다운", anchor: 0, both: true },
 };
 const LS = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const SS = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
@@ -432,7 +431,6 @@ function announce(allOk, tiltSt, bodyOk, sizeSt, hintBody, hintSize) {
   let text, tone;
   if (tiltSt !== "ok") { text = tilt == null ? "기울기 센서 없음" : tilt < 80 ? "폰을 더 세우세요" : "폰을 살짝 눕히세요"; tone = "bad"; }
   else if (!bodyOk) { text = hintBody.replace(/ → /g, ", ").replace(/\(.*?\)/g, ""); tone = "warn"; }
-  else if (sizeSt !== "ok") { text = hintSize.includes("앞으로") ? "조금 앞으로 오세요" : "조금 뒤로 가세요"; tone = "warn"; }
   else { text = "준비 완료"; tone = "ok"; }
   if (tone !== lastTone) { beep(tone === "ok" ? 880 : tone === "warn" ? 520 : 300, tone === "ok" ? 140 : 90, tone === "ok" ? 2 : 1); lastTone = tone; }
   say(text, { every: tone === "ok" ? 15000 : 4000 });
@@ -506,7 +504,6 @@ function analyze() {
   if (!lastPose) {
     bodyFrac = 0; fullOk = false;
     $("vBody").textContent = "--"; $("hBody").textContent = "사람 없음"; $("gBody").className = "g bad";
-    $("vDist").textContent = "--"; $("hDist").textContent = "사람 없음"; $("gDist").className = "g bad";
     $("save").disabled = true; return;
   }
   // pick the better-seen side (left or right) and require every needed joint on that side
@@ -530,18 +527,13 @@ function analyze() {
     $("hBody").textContent = lowest;
   }
 
-  // how much of the frame the needed joints cover decides near/far. No metres, no calibration.
-  const [lo, hi] = cfg.span;
-  const st = bodyFrac >= lo && bodyFrac <= hi ? "ok" : (bodyFrac > lo - 0.08 && bodyFrac < hi + 0.08) ? "warn" : "bad";
-  distM = null;
-  $("vDist").textContent = Math.round(bodyFrac * 100) + "%";
-  $("gDist").className = "g " + st;
-  $("hDist").textContent = st === "ok" ? "크기 적당" : bodyFrac < lo ? "작음 → 앞으로" : "큼 → 뒤로 (또는 광각)";
-  const allOk = tiltState === "ok" && fullOk && st === "ok";
+  // no distance judgement: the spot is good when the phone is upright and the needed joints are in frame
+  const st = "ok";
+  const allOk = tiltState === "ok" && fullOk;
   $("save").disabled = !allOk;
   if (allOk && !scoring && spotPassed) $("msg").textContent = "자리 합격. 오른쪽 아래 스위치를 켜면 운동이 시작됩니다.";
   else if (allOk && !scoring) $("msg").textContent = "세 가지 모두 통과. 두 손을 가슴 앞에서 모으면 10초 측정이 시작됩니다.";
-  if (!scoring && !guideMuted) announce(allOk, tiltState, fullOk, st, $("hBody").textContent, $("hDist").textContent);
+  if (!scoring && !guideMuted) announce(allOk, tiltState, fullOk, st, $("hBody").textContent, "");
   detectClap();
 }
 // After a measurement finishes, positioning voice stays off until the next measurement starts.
@@ -1125,10 +1117,10 @@ function runScore() {
 $("score").onclick = runScore;
 $("save").onclick = () => {
   const spots = JSON.parse(LS("spots") || "[]");
-  spots.push({ exercise, tilt: Math.round(tilt), dist: distM ? +distM.toFixed(1) : null, body: Math.round(bodyFrac * 100), at: new Date().toISOString() });
+  spots.push({ exercise, tilt: Math.round(tilt), at: new Date().toISOString() });
   SS("spots", JSON.stringify(spots));
   $("saved").textContent = `저장 ${spots.length}개`;
-  $("msg").textContent = `저장됨: ${exercise} · ${Math.round(tilt)}° · ${distM ? distM.toFixed(1) + "m" : "-"} · 전신 ${Math.round(bodyFrac*100)}%`;
+  $("msg").textContent = `저장됨: ${EX[exercise].label} · ${Math.round(tilt)}°`;
 };
 
 $("start").onclick = async () => {
