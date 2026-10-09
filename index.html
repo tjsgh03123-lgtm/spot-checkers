@@ -51,6 +51,16 @@
   .bottom.hid .iconRow, .bottom.hid .meta { opacity: 0; pointer-events: none; }
   .workout .bottom .iconRow, .workout .bottom .meta { display: none; }
   .xclose { flex: 0; padding: 10px 22px; margin-top: 6px; }
+  .sw { position: absolute; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 150px); z-index: 12; display: flex; align-items: center; gap: 10px;
+    background: var(--panel); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,.12); border-radius: 999px; padding: 8px 10px 8px 16px; }
+  .sw .swL { font-size: 15px; font-weight: 800; }
+  .sw input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .sw .track { width: 56px; height: 32px; border-radius: 999px; background: #2a3642; position: relative; transition: background .2s; }
+  .sw .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #f2f4f6; transition: left .2s; }
+  .sw input:checked + .track { background: var(--ok); } .sw input:checked + .track::after { left: 27px; }
+  .sw input:disabled + .track { opacity: .4; }
+  #countBig { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); font-size: 200px; font-weight: 900; line-height: 1;
+    color: var(--accent); text-shadow: 0 4px 24px rgba(0,0,0,.8); pointer-events: none; z-index: 5; }
   .ib { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px; border-radius: 14px;
     background: var(--panel); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,.1); min-width: 0; }
   .ib .ie { font-size: 22px; line-height: 1; } .ib .il { font-size: 11px; color: var(--muted); font-weight: 600; }
@@ -195,6 +205,8 @@
   <div class="hh"><button class="back" id="settingsClose" aria-label="뒤로" style="position:static">←</button><h1>설정</h1></div>
   <div class="setRow"><span>카메라</span><div class="seg" id="segFacing"><button data-v="environment" class="on">후면</button><button data-v="user">전면</button></div></div>
   <div class="setRow"><span>음성 안내</span><div class="seg" id="segVoice"><button data-v="1" class="on">켜짐</button><button data-v="0">꺼짐</button></div></div>
+  <div class="setRow"><span>시작 카운트다운</span><div class="seg" id="segCount"><button data-v="3">3초</button><button data-v="5" class="on">5초</button><button data-v="10">10초</button></div></div>
+  <div class="setRow"><span>합장 제스처</span><div class="seg" id="segClap"><button data-v="1">켜짐</button><button data-v="0" class="on">꺼짐</button></div></div>
   <div class="setRow"><span>기울기 초록 범위</span><b>80~95°</b></div>
   <div class="setRow"><span>얕은 렙 기준</span><b>기준 깊이의 85% 미만</b></div>
   <div class="setBlock">
@@ -255,15 +267,16 @@
     <div class="rows" id="sumRows"></div>
     <button id="replayBtn" class="primary" style="flex:0;padding:12px 24px">동선 보기</button>
     <button class="xclose" id="sumClose">✕ 닫기</button>
-    <div class="sub">다음 세트: 합장 → 동작</div>
+    <div class="sub">다음 세트: 스위치 ON → 카운트다운 → 동작</div>
   </div>
+  <label class="sw" id="swWrap"><span class="swL" id="swL">운동</span><input type="checkbox" id="swWorkout"><span class="track"></span></label>
+  <div id="countBig" hidden></div>
   <div class="bottom">
     <div id="msg">폰을 자리에 세우고 화면 테두리가 초록이 될 때까지 각도를 조절하세요.</div>
     <div class="iconRow">
       <button class="ib" id="flip"><span class="ie">🔄</span><span class="il" id="flipL">카메라</span></button>
       <button class="ib" id="voice"><span class="ie" id="voiceE">🔊</span><span class="il">음성</span></button>
       <button class="ib" id="score"><span class="ie">⏱</span><span class="il">10초</span></button>
-      <button class="ib go" id="workoutBtn" disabled><span class="ie" id="workoutE">▶</span><span class="il" id="workoutL">운동</span></button>
       <button class="ib" id="refBtn"><span class="ie">📏</span><span class="il" id="refL">기준</span></button>
       <button class="ib" id="save" disabled><span class="ie">📍</span><span class="il">자리</span></button>
     </div>
@@ -514,7 +527,7 @@ function analyze() {
   $("hDist").textContent = st === "ok" ? "크기 적당" : bodyFrac < lo ? "작음 → 앞으로" : "큼 → 뒤로 (또는 광각)";
   const allOk = tiltState === "ok" && fullOk && st === "ok";
   $("save").disabled = !allOk;
-  if (allOk && !scoring && spotPassed) $("msg").textContent = "자리 합격. 합장하면 운동 대기로 들어가고, 동작하면 셉니다.";
+  if (allOk && !scoring && spotPassed) $("msg").textContent = "자리 합격. 오른쪽 아래 스위치를 켜면 운동이 시작됩니다.";
   else if (allOk && !scoring) $("msg").textContent = "세 가지 모두 통과. 두 손을 가슴 앞에서 모으면 10초 측정이 시작됩니다.";
   if (!scoring && !guideMuted) announce(allOk, tiltState, fullOk, st, $("hBody").textContent, $("hDist").textContent);
   detectClap();
@@ -522,9 +535,10 @@ function analyze() {
 // After a measurement finishes, positioning voice stays off until the next measurement starts.
 let scoring = false, clapSince = 0, clapCooldownUntil = 0, guideMuted = false, spotPassed = false;
 // Hands together in front of the chest (both wrists closer than 1/3 of shoulder width) for 0.5 s starts the 10 s test.
+let countdownSec = Number(LS("countdown")) || 5, clapOn = LS("clap") === "1";
 function detectClap() {
   const now = Date.now();
-  if (scoring || now < clapCooldownUntil || !lastPose) { $("hand").hidden = true; return; }
+  if (!clapOn || scoring || now < clapCooldownUntil || !lastPose) { $("hand").hidden = true; return; }
   const lw = lastPose[15], rw = lastPose[16], ls = lastPose[11], rs = lastPose[12];
   const ok = [lw, rw, ls, rs].every(p => (p.visibility ?? 1) > 0.5);
   const shoulderW = Math.hypot(ls.x - rs.x, ls.y - rs.y);
@@ -562,17 +576,18 @@ function startWorkout(asReference = false) {
   refMode = asReference;
   workout = { cfg, reps: [], partial: 0, state: "up", pending: null, pendingN: 0, angle: null,
               tLeaveUp: 0, tEnterDown: 0, tLeaveDown: 0, tLastRep: 0, minAngle: 180, maxAngle: 0, started: 0, armed: true,
-              frames: [], repStartFrame: 0, ref: asReference ? null : refOf(exercise) };
+              frames: [], repStartFrame: 0, ref: asReference ? null : refOf(exercise),
+              countdownUntil: Date.now() + countdownSec * 1000, ready: false, stableSince: 0, prevAng: null, lastSaid: -1 };
+  $("swWorkout").checked = true; $("swL").textContent = "운동 중";
   guideMuted = true; speechSynthesis.cancel(); lastTone = "";
   $("stage").classList.add("workout");
   $("repN").textContent = "0"; $("repSub").textContent = cfg.label + (asReference ? " · 기준 렙" : " · 대기");
   $("repT").textContent = asReference ? "가벼운 무게로 완벽한 한 번을 하세요" : "동작을 시작하면 자동으로 셉니다";
   $("rep").hidden = false; $("tiltBig").hidden = true; $("done").hidden = true;
-  $("workoutE").textContent = "■"; $("workoutL").textContent = "끝"; $("workoutBtn").classList.add("stop"); $("workoutBtn").disabled = false;
-  $("msg").textContent = asReference ? "기준 렙 녹화. 한 번만 하면 자동으로 저장됩니다."
-    : "대기 중. 첫 동작에 세트가 시작되고, 버튼이나 합장(가슴 앞에서 두 손 모으기)으로 끝냅니다."
-      + (workout.ref ? ` 기준 렙 깊이 ${workout.ref.min}° 기준으로 판정합니다.` : "");
-  say(asReference ? "기준 렙. 가벼운 무게로 완벽하게 한 번" : cfg.label + " 준비. 동작을 시작하세요", { force: true });
+  
+  $("msg").textContent = (asReference ? "기준 렙 녹화. " : "") + `${countdownSec}초 뒤 선 자세로 1초 멈추면 시작. 스위치를 끄면 세트 종료.`
+      + (workout.ref ? ` 기준 깊이 ${workout.ref.min}°.` : "");
+  say(asReference ? "기준 렙. 자리를 잡으세요" : cfg.label + ". 자리를 잡으세요", { force: true });
 }
 function recordFrame(w, now) {
   if (w.armed || !lastPose) return;
@@ -583,7 +598,7 @@ function recordFrame(w, now) {
   if (w.frames.length > 20000) w.frames.shift();
 }
 function clapToEnd(now) {
-  const w = workout, p = lastPose; if (!w || !p) { clapSince = 0; $("hand").hidden = true; return; }
+  const w = workout, p = lastPose; if (!clapOn || !w || !p) { clapSince = 0; $("hand").hidden = true; return; }
   const lw = p[15], rw = p[16], ls = p[11], rs = p[12], lh = p[23], rh = p[24];
   if ([lw, rw, ls, rs, lh, rh].some(q => (q.visibility ?? 1) < 0.5)) { clapSince = 0; $("hand").hidden = true; return; }
   const shoulderW = Math.hypot(ls.x - rs.x, ls.y - rs.y), wristD = Math.hypot(lw.x - rw.x, lw.y - rw.y);
@@ -614,6 +629,22 @@ function stepWorkout(wArg) {
   w.angle = w.angle == null ? raw : w.angle * 0.6 + raw * 0.4;
   const ang = w.angle;
   $("repAng").textContent = Math.round(ang) + "°";
+  // arming: countdown first (phone handling / posture setup is ignored), then a still standing stance for 1 s
+  if (w.armed && !w.ready) {
+    if (now < w.countdownUntil) {
+      const left = Math.ceil((w.countdownUntil - now) / 1000);
+      $("countBig").hidden = false; $("countBig").textContent = left; $("repT").textContent = "자리를 잡으세요";
+      if (left !== w.lastSaid) { w.lastSaid = left; beep(660, 60); say(String(left), { force: true }); }
+      return;
+    }
+    $("countBig").hidden = true;
+    const still = ang > cfg.up && w.prevAng != null && Math.abs(ang - w.prevAng) < 4;
+    w.prevAng = ang;
+    if (still) { if (!w.stableSince) w.stableSince = now; } else w.stableSince = 0;
+    $("repT").textContent = still ? "준비 자세 확인 중…" : "선 자세로 잠시 멈추세요";
+    if (w.stableSince && now - w.stableSince >= 1000) { w.ready = true; w.state = "up"; w.pending = null; beep(880, 120, 2); say("시작", { force: true }); $("repT").textContent = refMode ? "가벼운 무게로 완벽한 한 번" : "동작을 시작하면 셉니다"; }
+    return;
+  }
   recordFrame(w, now);
   // with a reference rep, "down" means reaching 85% of the personal depth
   const downThr = w.ref ? w.ref.max - (w.ref.max - w.ref.min) * 0.85 : cfg.down;
@@ -627,7 +658,7 @@ function stepWorkout(wArg) {
   const prev = w.state; w.state = target;
   if (w.armed && prev === "up" && target !== "up") {
     w.armed = false; w.started = now; beep(880, 120, 2); startRec();
-    if (!refMode) { $("repSub").textContent = w.cfg.label; $("msg").textContent = "운동 중. '운동 끝' 버튼이나 합장(몸통 앞에서 두 손 모으기)으로 세트를 끝냅니다."; }
+    if (!refMode) { $("repSub").textContent = w.cfg.label; $("msg").textContent = "운동 중. 스위치를 끄면 세트를 끝냅니다."; }
   }
   if (prev === "up" && target === "mid") { w.tLeaveUp = now; w.minAngle = ang; w.repStartFrame = w.frames.length; $("repT").textContent = "내려가는 중"; }
   else if (target === "down") { if (!w.tEnterDown || prev !== "down") w.tEnterDown = now; $("repT").textContent = "바닥"; }
@@ -720,15 +751,17 @@ function saveReference(w, rep) {
                 frames, warm: w.frames, at: new Date().toISOString() };
   SS("ref_" + exercise, JSON.stringify(ref));
   workout = null; refMode = false;
-  $("stage").classList.remove("workout"); $("rep").hidden = true; $("tiltBig").hidden = false;
-  $("workoutE").textContent = "▶"; $("workoutL").textContent = "운동"; $("workoutBtn").classList.remove("stop"); $("refL").textContent = "기준✓";
+  $("stage").classList.remove("workout"); $("rep").hidden = true; $("tiltBig").hidden = false; $("countBig").hidden = true;
+  $("swWorkout").checked = false; $("swL").textContent = "운동";
+  $("refL").textContent = "기준✓";
   $("msg").textContent = `기준 렙 저장: 최저 ${ref.min}° · 하강 ${ref.down.toFixed(1)}s · 상승 ${ref.up.toFixed(1)}s. 이제 이 깊이의 85% 이상만 렙으로 셉니다.`;
   beep(880, 160, 3); say(`기준 렙 저장. 최저 ${ref.min}도`, { force: true });
 }
 function endWorkout(reason) {
   const w = workout; workout = null; refMode = false;
-  $("stage").classList.remove("workout"); $("rep").hidden = true; $("tiltBig").hidden = false; $("hand").hidden = true;
-  $("workoutE").textContent = "▶"; $("workoutL").textContent = "운동"; $("workoutBtn").classList.remove("stop"); clapCooldownUntil = Date.now() + 3000;
+  $("stage").classList.remove("workout"); $("rep").hidden = true; $("tiltBig").hidden = false; $("hand").hidden = true; $("countBig").hidden = true;
+  $("swWorkout").checked = false; $("swL").textContent = "운동";
+  clapCooldownUntil = Date.now() + 3000;
   if (!w.reps.length && !w.partial) { $("msg").textContent = "렙 없이 종료됐습니다."; say("종료", { force: true }); return; }
   const r = w.reps, n = r.length;
   const avg = k => n ? r.reduce((s, x) => s + x[k], 0) / n : 0;
@@ -772,7 +805,7 @@ function endWorkout(reason) {
   beep(880, 160, 3);
   say(`세트 종료. ${n}회. 평균 상승 ${avg("up").toFixed(1)}초.` + (fatigue != null && fatigue > 15 ? " 후반에 느려졌습니다." : ""), { force: true });
 }
-$("workoutBtn").onclick = () => workout ? endWorkout("수동 종료") : startWorkout(false);
+$("swWorkout").onchange = () => { if ($("swWorkout").checked) { if (!workout) startWorkout(false); } else if (workout) endWorkout("스위치"); };
 $("refBtn").onclick = () => { if (workout) return; startWorkout(true); };
 $("replayBtn").onclick = e => { e.stopPropagation(); if (lastSession) openReplay(lastSession); };
 $("doneReplay").onclick = e => { e.stopPropagation(); if (lastWarm) openReplay(lastWarm); };
@@ -943,6 +976,8 @@ function renderHome() {
 }
 $("exChips").querySelectorAll("button").forEach(b => b.onclick = () => { $("exercise").value = b.dataset.ex; SS("exercise", b.dataset.ex); renderHome(); });
 function renderSettings() {
+  $("segCount").querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.v === countdownSec));
+  $("segClap").querySelectorAll("button").forEach(b => b.classList.toggle("on", (b.dataset.v === "1") === clapOn));
   $("segFacing").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === $("facing").value));
   $("segVoice").querySelectorAll("button").forEach(b => b.classList.toggle("on", (b.dataset.v === "1") === voiceOn));
   $("refList").innerHTML = Object.keys(EX).map(k => { const r = refOf(k);
@@ -951,6 +986,8 @@ function renderSettings() {
 }
 $("segFacing").querySelectorAll("button").forEach(b => b.onclick = () => { $("facing").value = b.dataset.v; SS("facing", b.dataset.v); renderSettings(); });
 $("segVoice").querySelectorAll("button").forEach(b => b.onclick = () => { voiceOn = b.dataset.v === "1"; SS("voice", voiceOn ? "1" : "0"); $("voiceE").textContent = voiceOn ? "🔊" : "🔇"; renderSettings(); });
+$("segCount").querySelectorAll("button").forEach(b => b.onclick = () => { countdownSec = +b.dataset.v; SS("countdown", String(countdownSec)); renderSettings(); });
+$("segClap").querySelectorAll("button").forEach(b => b.onclick = () => { clapOn = b.dataset.v === "1"; SS("clap", clapOn ? "1" : "0"); renderSettings(); });
 $("settingsBtn").onclick = () => { renderSettings(); $("settings").hidden = false; };
 $("settingsClose").onclick = () => { $("settings").hidden = true; renderHome(); };
 let wipeArmed = false;
@@ -1010,7 +1047,7 @@ function runScore() {
       clearInterval(iv); $("score").disabled = false; scoring = false; clapCooldownUntil = Date.now() + 3000;
       guideMuted = true; lastTone = ""; speechSynthesis.cancel();
       const a = Math.round(okN / n * 100), b = Math.round(tiltOkN / n * 100), pass = a >= 95 && b >= 95;
-      spotPassed = pass; $("workoutBtn").disabled = !pass;
+      spotPassed = pass;
       if (pass && sideVotes[0] + sideVotes[1] > 0) lockedSide = sideVotes[1] > sideVotes[0] ? 1 : 0;   // lock the better-seen side
       const ref = finishCapture();
       $("doneRef").textContent = (ref ? `가벼운 무게 ${lastWarm.reps.length}회 → 기준 궤적 저장 (최저 ${ref.min}°)` : "측정 중 동작이 없어 기준 궤적은 저장되지 않았습니다")
@@ -1026,7 +1063,7 @@ function runScore() {
       $("doneVerdict").style.color = "#0b0f14";
       $("done").hidden = false;
       beep(pass ? 880 : 300, 160, 3);
-      say(`측정 완료. 관절 보임 ${a}퍼센트, 기울기 ${b}퍼센트. ${verdict}` + (ref ? ` 기준 궤적 저장, 최저 ${ref.min}도.` : "") + (pass ? " 합장하면 운동을 시작합니다." : ""), { force: true });
+      say(`측정 완료. 관절 보임 ${a}퍼센트, 기울기 ${b}퍼센트. ${verdict}` + (ref ? ` 기준 궤적 저장, 최저 ${ref.min}도.` : "") + (pass ? " 스위치를 켜면 운동을 시작합니다." : ""), { force: true });
     }
   }, 200);
 }
