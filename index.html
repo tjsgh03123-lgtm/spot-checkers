@@ -425,6 +425,24 @@ async function loadPose() {
     runningMode: "VIDEO", numPoses: 1 });
 }
 let liveSide = 0;   // which side (0 = left ids, 1 = right ids) the analysis is using right now
+let lockedSide = null, sideVotes = [0, 0], sideLostSince = 0;   // side chosen during the spot test, kept for the whole set
+
+// Adaptive smoothing (One-Euro style): heavy at rest so joints stop trembling, light while moving so reps stay sharp.
+// A joint that drops out keeps its last position for up to 0.5 s instead of jumping.
+let sm = null;
+function smoothPose(raw, now) {
+  if (!raw) { sm = null; return null; }
+  if (!sm) { sm = raw.map(p => ({ x: p.x, y: p.y, z: p.z, visibility: p.visibility ?? 1, lostAt: 0 })); return sm; }
+  for (let i = 0; i < raw.length; i++) {
+    const p = raw[i], q = sm[i], v = p.visibility ?? 1;
+    if (v < 0.4 && q.visibility >= 0.4) { if (!q.lostAt) q.lostAt = now; if (now - q.lostAt < 500) continue; }
+    q.lostAt = 0;
+    const d = Math.hypot(p.x - q.x, p.y - q.y);           // normalized movement since last frame
+    const a = Math.min(0.85, 0.12 + d * 10);              // ~0.12 at rest → 0.85 when moving fast
+    q.x += a * (p.x - q.x); q.y += a * (p.y - q.y); q.z += a * ((p.z ?? 0) - (q.z ?? 0)); q.visibility = v;
+  }
+  return sm;
+}
 let frames = 0, fpsT = performance.now(), lastTs = -1, looping = false;
 function loop() {
   if (!$("stage").hidden && video.srcObject && video.readyState >= 2 && landmarker) {
@@ -432,7 +450,7 @@ function loop() {
     if (ts !== lastTs) {
       lastTs = ts;
       const res = landmarker.detectForVideo(video, ts);
-      lastPose = res.landmarks && res.landmarks[0] ? res.landmarks[0] : null;
+      lastPose = smoothPose(res.landmarks && res.landmarks[0] ? res.landmarks[0] : null, Date.now());
       draw();
       if (workout) { stepWorkout(); clapToEnd(Date.now()); } else { analyze(); if (capture) stepWorkout(capture); }
     }
@@ -465,7 +483,9 @@ function analyze() {
   }
   // pick the better-seen side (left or right) and require every needed joint on that side
   const score = side => cfg.joints.reduce((s, pair) => s + (vis(pair[side]) ? 1 : 0), 0);
-  const sL = score(0), sR = score(1), side = sR > sL ? 1 : 0, seen = Math.max(sL, sR);
+  const sL = score(0), sR = score(1);
+  if (scoring) { sideVotes[0] += sL; sideVotes[1] += sR; }
+  const side = lockedSide != null ? lockedSide : sR > sL ? 1 : 0, seen = lockedSide != null ? [sL, sR][side] : Math.max(sL, sR);
   liveSide = side;
   const ids = cfg.joints.map(p => p[side]);
   fullOk = seen === cfg.joints.length;
@@ -578,7 +598,11 @@ function stepWorkout(wArg) {
   const w = wArg || workout; if (!w || !lastPose) return;
   const cfg = w.cfg, now = Date.now();
   // better-seen side
-  const side = cfg.joints.reduce((s, p) => s + ((lastPose[p[1]].visibility ?? 1) > (lastPose[p[0]].visibility ?? 1) ? 1 : -1), 0) > 0 ? 1 : 0;
+  const visOf = sd => Math.min(...cfg.joints.map(p => lastPose[p[sd]].visibility ?? 1));
+  let side = lockedSide != null ? lockedSide : (visOf(1) > visOf(0) ? 1 : 0);
+  // locked side hidden for over a second → fall back to the other side, otherwise never flip mid-set
+  if (visOf(side) < 0.4) { if (!sideLostSince) sideLostSince = now; if (now - sideLostSince > 1000 && visOf(1 - side) >= 0.4) side = 1 - side; }
+  else sideLostSince = 0;
   liveSide = side; w.side = side;
   const [A, B, C] = cfg.joints.map(p => lastPose[p[side]]);
   if ([A, B, C].some(p => (p.visibility ?? 1) < 0.4)) { $("repT").textContent = "관절이 안 보여요"; return; }
@@ -940,7 +964,7 @@ $("backStage").onclick = () => {
   if (workout) endWorkout("뒤로가기");
   $("summary").hidden = true; $("done").hidden = true;
   try { video.srcObject?.getTracks().forEach(t => t.stop()); } catch {}
-  video.srcObject = null; lastPose = null; speechSynthesis.cancel();
+  video.srcObject = null; lastPose = null; sm = null; lockedSide = null; speechSynthesis.cancel();
   $("stage").hidden = true; $("setup").hidden = false; renderHome();
   $("start").disabled = false; $("start").querySelector(".ct").textContent = "운동 시작";
 };
@@ -959,6 +983,7 @@ function runScore() {
   if (scoring) return;
   let n = 0, okN = 0, tiltOkN = 0; const t0 = Date.now();
   $("score").disabled = true; scoring = true; $("done").hidden = true; guideMuted = false;
+  sideVotes = [0, 0]; lockedSide = null;
   beep(880, 120, 2); startCapture();
   say("측정 시작. 가벼운 무게로 동작을 해보세요", { force: true });
   let lastLeft = 11;
@@ -974,8 +999,10 @@ function runScore() {
       guideMuted = true; lastTone = ""; speechSynthesis.cancel();
       const a = Math.round(okN / n * 100), b = Math.round(tiltOkN / n * 100), pass = a >= 95 && b >= 95;
       spotPassed = pass; $("workoutBtn").disabled = !pass;
+      if (pass && sideVotes[0] + sideVotes[1] > 0) lockedSide = sideVotes[1] > sideVotes[0] ? 1 : 0;   // lock the better-seen side
       const ref = finishCapture();
-      $("doneRef").textContent = ref ? `가벼운 무게 ${lastWarm.reps.length}회 → 기준 궤적 저장 (최저 ${ref.min}°)` : "측정 중 동작이 없어 기준 궤적은 저장되지 않았습니다";
+      $("doneRef").textContent = (ref ? `가벼운 무게 ${lastWarm.reps.length}회 → 기준 궤적 저장 (최저 ${ref.min}°)` : "측정 중 동작이 없어 기준 궤적은 저장되지 않았습니다")
+        + (lockedSide != null ? ` · ${lockedSide ? "오른쪽" : "왼쪽"} 관절 고정` : "");
       $("doneReplay").hidden = !(lastWarm && lastWarm.frames.length);
       const verdict = pass ? "이 자리 합격" : a < 95 ? "동작 중 몸이 잘립니다. 거리나 높이 조정" : "폰이 흔들립니다. 거치 보강";
       $("msg").textContent = `결과: 관절 보임 ${a}% · 기울기 유지 ${b}% → ${verdict}`;
