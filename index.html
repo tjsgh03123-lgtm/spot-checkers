@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>자리 체커</title>
+<title>렙 템포</title>
 <style>
   /* Layout: full-screen camera, one status band on top, controls at bottom. Tilt state paints the whole frame edge. */
   :root {
@@ -120,7 +120,27 @@
   .empty { color: var(--muted); text-align: center; padding: 40px 0; }
   #setup { position: fixed; inset: 0; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 28px) 20px 28px;
     display: flex; flex-direction: column; gap: 16px; overflow: auto; }
-  #setup h1 { font-size: 28px; margin: 0; }
+  #setup h1 { font-size: 32px; margin: 0; letter-spacing: -.02em; }
+  .homeHead { display: flex; flex-direction: column; gap: 8px; }
+  .chips { display: flex; gap: 8px; }
+  .chips button { flex: 1; padding: 12px 8px; background: #121a23; border: 1px solid #2a3642; }
+  .chips button.on { background: var(--accent); color: #0b0f14; border-color: var(--accent); }
+  .exTip { font-size: 14px; color: var(--muted); margin: -6px 0 0; min-height: 20px; }
+  .card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 20px 18px; border-radius: 16px;
+    background: #121a23; border: 1px solid #2a3642; flex: 0 0 auto; }
+  .card.primary { background: var(--accent); border-color: var(--accent); }
+  .card .ct { font-size: 22px; font-weight: 800; } .card .cs { font-size: 14px; opacity: .75; font-weight: 500; }
+  #settings { position: fixed; inset: 0; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 16px) 16px 32px; overflow: auto;
+    display: flex; flex-direction: column; gap: 12px; }
+  .setRow { display: flex; justify-content: space-between; align-items: center; background: #121a23; border-radius: 12px; padding: 12px 14px; font-size: 16px; gap: 12px; }
+  .setRow b { font-variant-numeric: tabular-nums; }
+  .seg { display: flex; border-radius: 10px; overflow: hidden; border: 1px solid #2a3642; }
+  .seg button { flex: 0 0 auto; border-radius: 0; padding: 8px 14px; font-size: 14px; background: #0f151d; }
+  .seg button.on { background: var(--accent); color: #0b0f14; }
+  .setBlock { background: #121a23; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .setBlock .sub { font-size: 13px; color: var(--muted); margin: 0; }
+  .refRow { display: flex; justify-content: space-between; align-items: center; font-size: 15px; gap: 8px; }
+  .refRow button { flex: 0; padding: 6px 12px; font-size: 13px; }
   #setup p { margin: 0; color: var(--muted); line-height: 1.5; }
   label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
   input[type=number], select { font: inherit; font-size: 18px; padding: 12px; border-radius: 12px; border: 1px solid #2a3642;
@@ -133,26 +153,51 @@
 <body>
 
 <div id="setup">
-  <h1>자리 체커</h1>
-  <p>폰을 세워둘 자리가 운동 측정에 적합한지 기울기 · 화면 크기 · 필요 관절로 확인합니다. 전신이 다 보일 필요는 없고, 그 운동에 쓰는 관절만 보이면 됩니다. 후면 카메라로 두면 음성으로 안내합니다. 영상은 폰 밖으로 나가지 않습니다.</p>
-  <label>운동
-    <select id="exercise">
-      <option value="squat">스쿼트 — 엉덩이·무릎·발목 (측면 45°, 1.2~1.8m)</option>
-      <option value="pushup">푸시업 — 어깨·팔꿈치·손목 (측면, 폰 바닥 가까이)</option>
-      <option value="curl">덤벨 컬 — 어깨·팔꿈치·손목 (정면, 1~1.5m)</option>
-    </select>
-  </label>
-  <label>카메라
-    <select id="facing">
-      <option value="environment">후면 (화면이 안 보여도 됨)</option>
-      <option value="user">전면 (화면을 보면서)</option>
-    </select>
-  </label>
-  <div class="legend">
-    <span class="dot" style="background:var(--ok)"></span><span>초록: 기울기 80~95°, 딱 좋음</span>
-    <span class="dot" style="background:var(--warn)"></span><span>노랑: 65~80° 또는 95~105°, 쓸 수는 있음</span>
-    <span class="dot" style="background:var(--bad)"></span><span>빨강: 그 밖, 다시 세우세요</span>
+  <div class="homeHead">
+    <h1>렙 템포</h1>
+    <p>카메라로 횟수 · 가동범위 · 렙당 시간을 잽니다. 영상은 폰 밖으로 나가지 않습니다.</p>
   </div>
+  <div class="chips" id="exChips">
+    <button data-ex="squat" class="on">스쿼트</button>
+    <button data-ex="pushup">푸시업</button>
+    <button data-ex="curl">덤벨 컬</button>
+  </div>
+  <p class="exTip" id="exTip"></p>
+  <select id="exercise" hidden><option value="squat">스쿼트</option><option value="pushup">푸시업</option><option value="curl">덤벨 컬</option></select>
+  <select id="facing" hidden><option value="environment">후면</option><option value="user">전면</option></select>
+  <button class="card primary" id="start">
+    <span class="ct">운동 시작</span>
+    <span class="cs">자리 확인 → 10초 워밍업 → 세트 측정</span>
+  </button>
+  <button class="card" id="histBtn">
+    <span class="ct">기록</span>
+    <span class="cs" id="histSub">세트별 횟수 · 템포 · 동선</span>
+  </button>
+  <button class="card" id="settingsBtn">
+    <span class="ct">설정</span>
+    <span class="cs" id="setSub">카메라 · 음성 · 기준 렙</span>
+  </button>
+  <p id="setupErr" style="color:var(--bad)"></p>
+  <p id="ctx" style="font-size:12px;margin-top:auto"></p>
+</div>
+
+<div id="settings" hidden>
+  <div class="hh"><button class="back" id="settingsClose" aria-label="뒤로" style="position:static">←</button><h1>설정</h1></div>
+  <div class="setRow"><span>카메라</span><div class="seg" id="segFacing"><button data-v="environment" class="on">후면</button><button data-v="user">전면</button></div></div>
+  <div class="setRow"><span>음성 안내</span><div class="seg" id="segVoice"><button data-v="1" class="on">켜짐</button><button data-v="0">꺼짐</button></div></div>
+  <div class="setRow"><span>기울기 초록 범위</span><b>80~95°</b></div>
+  <div class="setRow"><span>얕은 렙 기준</span><b>기준 깊이의 85% 미만</b></div>
+  <div class="setBlock">
+    <b>기준 렙 (운동별)</b>
+    <div id="refList"></div>
+    <p class="sub">10초 워밍업 때 자동 저장됩니다. 지우면 고정 각도로 판정합니다.</p>
+  </div>
+  <div class="setBlock">
+    <b>데이터</b>
+    <button id="wipeBtn">모든 기록 지우기</button>
+    <p class="sub" id="wipeMsg">기록은 이 폰의 브라우저에만 저장됩니다.</p>
+  </div>
+</div>
   <button class="primary" id="start">시작 (카메라 · 센서 권한 허용)</button>
   <button id="histBtn">기록 보기</button>
   <p id="setupErr" style="color:var(--bad)"></p>
@@ -771,16 +816,47 @@ function renderHistory() {
   list.querySelectorAll(".rpOpen").forEach(b => b.onclick = e => { e.stopPropagation(); openReplay(all[+b.dataset.i]); });
 }
 $("histBtn").onclick = () => { renderHistory(); $("hist").hidden = false; };
+// home: exercise chips + settings panel
+function renderHome() {
+  exercise = $("exercise").value;
+  $("exChips").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.ex === exercise));
+  $("exTip").textContent = EX[exercise].tip + (refOf(exercise) ? ` · 기준 ${refOf(exercise).min}°` : " · 기준 렙 없음");
+  const n = JSON.parse(LS("sessions") || "[]").length;
+  $("histSub").textContent = n ? `저장된 세트 ${n}개` : "아직 기록 없음";
+  $("setSub").textContent = ($("facing").value === "user" ? "전면" : "후면") + " 카메라 · 음성 " + (voiceOn ? "켜짐" : "꺼짐");
+}
+$("exChips").querySelectorAll("button").forEach(b => b.onclick = () => { $("exercise").value = b.dataset.ex; SS("exercise", b.dataset.ex); renderHome(); });
+function renderSettings() {
+  $("segFacing").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === $("facing").value));
+  $("segVoice").querySelectorAll("button").forEach(b => b.classList.toggle("on", (b.dataset.v === "1") === voiceOn));
+  $("refList").innerHTML = Object.keys(EX).map(k => { const r = refOf(k);
+    return `<div class="refRow"><span>${EX[k].label}</span><span>${r ? `최저 ${r.min}° · ${new Date(r.at).toLocaleDateString("ko-KR")}` : "없음"}</span>${r ? `<button data-k="${k}">지우기</button>` : ""}</div>`; }).join("");
+  $("refList").querySelectorAll("button").forEach(b => b.onclick = () => { try { localStorage.removeItem("ref_" + b.dataset.k); } catch {} renderSettings(); });
+}
+$("segFacing").querySelectorAll("button").forEach(b => b.onclick = () => { $("facing").value = b.dataset.v; SS("facing", b.dataset.v); renderSettings(); });
+$("segVoice").querySelectorAll("button").forEach(b => b.onclick = () => { voiceOn = b.dataset.v === "1"; SS("voice", voiceOn ? "1" : "0"); $("voice").textContent = voiceOn ? "음성 켜짐" : "음성 꺼짐"; renderSettings(); });
+$("settingsBtn").onclick = () => { renderSettings(); $("settings").hidden = false; };
+$("settingsClose").onclick = () => { $("settings").hidden = true; renderHome(); };
+let wipeArmed = false;
+$("wipeBtn").onclick = () => {
+  if (!wipeArmed) { wipeArmed = true; $("wipeBtn").textContent = "정말 지우기 (한 번 더)"; $("wipeMsg").textContent = "세트 기록과 자리 저장이 모두 지워집니다. 기준 렙은 남습니다."; return; }
+  try { localStorage.removeItem("sessions"); localStorage.removeItem("spots"); } catch {}
+  wipeArmed = false; $("wipeBtn").textContent = "모든 기록 지우기"; $("wipeMsg").textContent = "지웠습니다."; lastSession = null;
+};
+if (LS("exercise")) $("exercise").value = LS("exercise");
+if (LS("facing")) $("facing").value = LS("facing");
+if (LS("voice") === "0") { voiceOn = false; $("voice").textContent = "음성 꺼짐"; }
+renderHome();
 // back from the camera screen: finish any running set (kept if it has reps), stop the camera, return to setup
 $("backStage").onclick = () => {
   if (workout) endWorkout("뒤로가기");
   $("summary").hidden = true; $("done").hidden = true;
   try { video.srcObject?.getTracks().forEach(t => t.stop()); } catch {}
   video.srcObject = null; lastPose = null; speechSynthesis.cancel();
-  $("stage").hidden = true; $("setup").hidden = false;
-  $("start").disabled = false; $("start").textContent = "시작 (카메라 · 센서 권한 허용)";
+  $("stage").hidden = true; $("setup").hidden = false; renderHome();
+  $("start").disabled = false; $("start").querySelector(".ct").textContent = "운동 시작";
 };
-$("histClose").onclick = () => { $("hist").hidden = true; };
+$("histClose").onclick = () => { $("hist").hidden = true; renderHome(); };
 $("summary").onclick = () => { $("summary").hidden = true; };
 
 // ---------- actions ----------
@@ -839,20 +915,20 @@ $("save").onclick = () => {
 
 $("start").onclick = async () => {
   exercise = $("exercise").value; facing = $("facing").value;
-  $("start").disabled = true; $("start").textContent = "준비 중…";
+  $("start").disabled = true; $("start").querySelector(".ct").textContent = "준비 중…";
   beep(660, 60);   // unlock audio on this tap so later cues can play
   try {
     try { await startCamera(); } catch (e) { throw new Error(explainCameraError(e)); }
     try { await startSensors(); } catch (e) { $("hTilt").textContent = "센서 거부됨"; }
-    if (!landmarker) { $("start").textContent = "분석 모델 받는 중…"; await loadPose(); }
+    if (!landmarker) { $("start").querySelector(".ct").textContent = "분석 모델 받는 중…"; await loadPose(); }
     $("setup").hidden = true; $("stage").hidden = false;
     const spots = JSON.parse(LS("spots") || "[]"); if (spots.length) $("saved").textContent = `저장 ${spots.length}개`;
     try { await navigator.wakeLock?.request("screen"); } catch {}
-    say("자리 체커 시작. " + EX[exercise].tip, { force: true });
+    say(EX[exercise].label + " 준비. " + EX[exercise].tip, { force: true });
     if (!looping) { looping = true; loop(); }
   } catch (e) {
     $("setupErr").textContent = (e && e.message) || String(e);
-    $("start").disabled = false; $("start").textContent = "다시 시도";
+    $("start").disabled = false; $("start").querySelector(".ct").textContent = "다시 시도";
   }
 };
 $("ctx").textContent = window.isSecureContext
