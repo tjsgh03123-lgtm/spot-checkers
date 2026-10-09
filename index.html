@@ -49,6 +49,14 @@
   button:disabled { opacity: .45; }
   .meta { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
   #msg { background: var(--panel); border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.4; }
+  #done { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    background: rgba(11,15,20,.88); text-align: center; padding: 24px; }
+  #done .big { font-size: 44px; font-weight: 900; line-height: 1.1; }
+  #done .pct { font-size: 64px; font-weight: 900; font-variant-numeric: tabular-nums; line-height: 1; }
+  #done .sub { font-size: 18px; color: var(--muted); }
+  #done .verdict { font-size: 24px; font-weight: 700; padding: 12px 20px; border-radius: 14px; }
+  #hand { position: absolute; left: 50%; bottom: 190px; transform: translateX(-50%); background: var(--panel); padding: 10px 16px;
+    border-radius: 12px; font-size: 16px; font-weight: 700; backdrop-filter: blur(8px); white-space: nowrap; }
   #setup { position: fixed; inset: 0; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 28px) 20px 28px;
     display: flex; flex-direction: column; gap: 16px; overflow: auto; }
   #setup h1 { font-size: 28px; margin: 0; }
@@ -101,6 +109,14 @@
     </div>
   </div>
   <div id="tiltBig"><div class="n" id="bigN">--</div><div class="t" id="bigT">폰을 세우세요</div></div>
+  <div id="hand" hidden></div>
+  <div id="done" hidden>
+    <div class="big">측정 완료</div>
+    <div class="pct" id="donePct">--%</div>
+    <div class="sub" id="doneSub"></div>
+    <div class="verdict" id="doneVerdict"></div>
+    <div class="sub">화면을 탭하거나 다시 손을 모으면 닫힙니다</div>
+  </div>
   <div class="bottom">
     <div id="msg">폰을 자리에 세우고 화면 테두리가 초록이 될 때까지 각도를 조절하세요.</div>
     <div class="row">
@@ -311,10 +327,33 @@ function analyze() {
   $("hDist").textContent = st === "ok" ? "크기 적당" : bodyFrac < lo ? "작음 → 앞으로" : "큼 → 뒤로 (또는 광각)";
   const allOk = tiltState === "ok" && fullOk && st === "ok";
   $("save").disabled = !allOk;
-  if (allOk && !scoring) $("msg").textContent = "세 가지 모두 통과. 이 자리를 저장하거나 10초 측정으로 안정성을 확인하세요.";
+  if (allOk && !scoring) $("msg").textContent = "세 가지 모두 통과. 두 손을 가슴 앞에서 모으면 10초 측정이 시작됩니다.";
   if (!scoring) announce(allOk, tiltState, fullOk, st, $("hBody").textContent, $("hDist").textContent);
+  detectClap();
 }
-let scoring = false;
+let scoring = false, clapSince = 0, clapCooldownUntil = 0;
+// Hands together in front of the chest (both wrists closer than 1/3 of shoulder width) for 0.5 s starts the 10 s test.
+function detectClap() {
+  const now = Date.now();
+  if (scoring || now < clapCooldownUntil || !lastPose) { $("hand").hidden = true; return; }
+  const lw = lastPose[15], rw = lastPose[16], ls = lastPose[11], rs = lastPose[12];
+  const ok = [lw, rw, ls, rs].every(p => (p.visibility ?? 1) > 0.5);
+  const shoulderW = Math.hypot(ls.x - rs.x, ls.y - rs.y);
+  const wristD = Math.hypot(lw.x - rw.x, lw.y - rw.y);
+  const together = ok && shoulderW > 0.05 && wristD < shoulderW * 0.35;
+  if (!together) { clapSince = 0; $("hand").hidden = true; return; }
+  if (!clapSince) clapSince = now;
+  const held = (now - clapSince) / 500;
+  $("hand").hidden = false;
+  $("hand").textContent = "손 모으기 유지… " + Math.min(100, Math.round(held * 100)) + "%";
+  if (held >= 1) {
+    clapSince = 0; $("hand").hidden = true;
+    if (!$("done").hidden) { $("done").hidden = true; clapCooldownUntil = now + 2000; return; }
+    clapCooldownUntil = now + 3000;
+    runScore();
+  }
+}
+$("done").onclick = () => { $("done").hidden = true; };
 
 // ---------- actions ----------
 $("flip").onclick = async () => {
@@ -324,10 +363,12 @@ $("flip").onclick = async () => {
   catch (e) { $("msg").textContent = "카메라 전환 실패: " + e.message; }
 };
 $("voice").onclick = () => { voiceOn = !voiceOn; $("voice").textContent = voiceOn ? "음성 켜짐" : "음성 꺼짐"; if (!voiceOn) speechSynthesis.cancel(); };
-$("score").onclick = () => {
+function runScore() {
+  if (scoring) return;
   let n = 0, okN = 0, tiltOkN = 0; const t0 = Date.now();
-  $("score").disabled = true; scoring = true;
-  say("10초 측정 시작. 운동 동작을 해보세요", { force: true });
+  $("score").disabled = true; scoring = true; $("done").hidden = true;
+  beep(880, 120, 2);
+  say("측정 시작. 운동 동작을 해보세요", { force: true });
   let lastLeft = 11;
   const iv = setInterval(() => {
     n++; if (fullOk) okN++; if (tiltState === "ok") tiltOkN++;
@@ -335,16 +376,25 @@ $("score").onclick = () => {
     if (left !== lastLeft && left <= 3 && left > 0) beep(660, 80);
     lastLeft = left;
     $("msg").textContent = `측정 중… ${left}초 (지금 그 자리에서 운동 동작을 해보세요)`;
+    $("bigN").textContent = left; $("bigT").textContent = "측정 중";
     if (Date.now() - t0 >= 10000) {
-      clearInterval(iv); $("score").disabled = false; scoring = false;
-      const a = Math.round(okN / n * 100), b = Math.round(tiltOkN / n * 100);
-      const verdict = a >= 95 && b >= 95 ? "이 자리 합격" : a < 95 ? "동작 중 몸이 잘립니다. 거리나 높이 조정" : "폰이 흔들립니다. 거치 보강";
+      clearInterval(iv); $("score").disabled = false; scoring = false; clapCooldownUntil = Date.now() + 3000;
+      const a = Math.round(okN / n * 100), b = Math.round(tiltOkN / n * 100), pass = a >= 95 && b >= 95;
+      const verdict = pass ? "이 자리 합격" : a < 95 ? "동작 중 몸이 잘립니다. 거리나 높이 조정" : "폰이 흔들립니다. 거치 보강";
       $("msg").textContent = `결과: 관절 보임 ${a}% · 기울기 유지 ${b}% → ${verdict}`;
-      beep(a >= 95 && b >= 95 ? 880 : 300, 160, 3);
-      say(`측정 끝. 관절 보임 ${a}퍼센트, 기울기 ${b}퍼센트. ${verdict}`, { force: true });
+      $("donePct").textContent = Math.min(a, b) + "%";
+      $("donePct").style.color = pass ? "var(--ok)" : "var(--bad)";
+      $("doneSub").textContent = `관절 보임 ${a}% · 기울기 유지 ${b}%`;
+      $("doneVerdict").textContent = verdict;
+      $("doneVerdict").style.background = pass ? "var(--ok)" : "var(--bad)";
+      $("doneVerdict").style.color = "#0b0f14";
+      $("done").hidden = false;
+      beep(pass ? 880 : 300, 160, 3);
+      say(`측정 완료. 관절 보임 ${a}퍼센트, 기울기 ${b}퍼센트. ${verdict}`, { force: true });
     }
   }, 200);
-};
+}
+$("score").onclick = runScore;
 $("save").onclick = () => {
   const spots = JSON.parse(LS("spots") || "[]");
   spots.push({ exercise, tilt: Math.round(tilt), dist: distM ? +distM.toFixed(1) : null, body: Math.round(bodyFrac * 100), at: new Date().toISOString() });
