@@ -115,7 +115,7 @@
     <div class="pct" id="donePct">--%</div>
     <div class="sub" id="doneSub"></div>
     <div class="verdict" id="doneVerdict"></div>
-    <div class="sub">화면을 탭하거나 다시 손을 모으면 닫힙니다</div>
+    <div class="sub">화면을 탭하면 닫힙니다 · 다시 손을 모으면 재측정</div>
   </div>
   <div class="bottom">
     <div id="msg">폰을 자리에 세우고 화면 테두리가 초록이 될 때까지 각도를 조절하세요.</div>
@@ -328,10 +328,11 @@ function analyze() {
   const allOk = tiltState === "ok" && fullOk && st === "ok";
   $("save").disabled = !allOk;
   if (allOk && !scoring) $("msg").textContent = "세 가지 모두 통과. 두 손을 가슴 앞에서 모으면 10초 측정이 시작됩니다.";
-  if (!scoring) announce(allOk, tiltState, fullOk, st, $("hBody").textContent, $("hDist").textContent);
+  if (!scoring && !guideMuted) announce(allOk, tiltState, fullOk, st, $("hBody").textContent, $("hDist").textContent);
   detectClap();
 }
-let scoring = false, clapSince = 0, clapCooldownUntil = 0;
+// After a measurement finishes, positioning voice stays off until the next measurement starts.
+let scoring = false, clapSince = 0, clapCooldownUntil = 0, guideMuted = false;
 // Hands together in front of the chest (both wrists closer than 1/3 of shoulder width) for 0.5 s starts the 10 s test.
 function detectClap() {
   const now = Date.now();
@@ -348,7 +349,6 @@ function detectClap() {
   $("hand").textContent = "손 모으기 유지… " + Math.min(100, Math.round(held * 100)) + "%";
   if (held >= 1) {
     clapSince = 0; $("hand").hidden = true;
-    if (!$("done").hidden) { $("done").hidden = true; clapCooldownUntil = now + 2000; return; }
     clapCooldownUntil = now + 3000;
     runScore();
   }
@@ -366,7 +366,7 @@ $("voice").onclick = () => { voiceOn = !voiceOn; $("voice").textContent = voiceO
 function runScore() {
   if (scoring) return;
   let n = 0, okN = 0, tiltOkN = 0; const t0 = Date.now();
-  $("score").disabled = true; scoring = true; $("done").hidden = true;
+  $("score").disabled = true; scoring = true; $("done").hidden = true; guideMuted = false;
   beep(880, 120, 2);
   say("측정 시작. 운동 동작을 해보세요", { force: true });
   let lastLeft = 11;
@@ -379,6 +379,7 @@ function runScore() {
     $("bigN").textContent = left; $("bigT").textContent = "측정 중";
     if (Date.now() - t0 >= 10000) {
       clearInterval(iv); $("score").disabled = false; scoring = false; clapCooldownUntil = Date.now() + 3000;
+      guideMuted = true; lastTone = ""; speechSynthesis.cancel();
       const a = Math.round(okN / n * 100), b = Math.round(tiltOkN / n * 100), pass = a >= 95 && b >= 95;
       const verdict = pass ? "이 자리 합격" : a < 95 ? "동작 중 몸이 잘립니다. 거리나 높이 조정" : "폰이 흔들립니다. 거치 보강";
       $("msg").textContent = `결과: 관절 보임 ${a}% · 기울기 유지 ${b}% → ${verdict}`;
