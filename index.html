@@ -460,6 +460,7 @@ function stepWorkout() {
   const prev = w.state; w.state = target;
   if (w.armed && prev === "up" && target !== "up") {
     w.armed = false; w.started = now; $("repSub").textContent = w.cfg.label; beep(880, 120, 2);
+    $("msg").textContent = "운동 중. '운동 끝' 버튼이나 합장(몸통 앞에서 두 손 모으기)으로 세트를 끝냅니다.";
   }
   if (prev === "up" && target === "mid") { w.tLeaveUp = now; w.minAngle = ang; $("repT").textContent = "내려가는 중"; }
   else if (target === "down") { if (!w.tEnterDown || prev !== "down") w.tEnterDown = now; $("repT").textContent = "바닥"; }
@@ -472,8 +473,11 @@ function stepWorkout() {
       $("repN").textContent = rep.n;
       $("repT").textContent = `하강 ${rep.down.toFixed(1)}s · 정지 ${rep.hold.toFixed(1)}s · 상승 ${rep.up.toFixed(1)}s`;
       beep(880, 70); say(String(rep.n), { force: true });
-    } else if (w.tLeaveUp) {
+    } else if (w.tLeaveUp && w.minAngle <= cfg.up - 35) {
+      // went clearly down (squat: below 125°) but never reached the bottom threshold → partial rep
       w.partial++; $("repT").textContent = `부분 렙 (최저 ${Math.round(w.minAngle)}°, 더 깊게)`; beep(400, 120);
+    } else if (w.tLeaveUp) {
+      $("repT").textContent = w.reps.length ? `${w.reps.length}회 · 다음 렙` : "동작을 시작하면 자동으로 셉니다";   // standing sway, ignore
     }
     w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180;
   }
