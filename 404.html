@@ -178,6 +178,8 @@
     <div class="pct" id="donePct">--%</div>
     <div class="sub" id="doneSub"></div>
     <div class="verdict" id="doneVerdict"></div>
+    <div class="sub" id="doneRef"></div>
+    <button id="doneReplay" style="flex:0;padding:10px 20px" hidden>궤적 보기</button>
     <div class="sub" id="doneHint">화면을 탭하면 닫힙니다</div>
   </div>
   <div id="rep" hidden>
@@ -215,12 +217,12 @@
 
 <div id="replay" hidden>
     <canvas id="rpCanvas"></canvas>
-    <div class="rpTop"><button class="back" id="rpClose" aria-label="뒤로" style="position:static">←</button><span id="rpInfo"></span></div>
+    <div class="rpTop"><button class="back" id="rpClose" aria-label="뒤로" style="position:static">←</button><span id="rpTitle" style="font-weight:700"></span><span id="rpInfo" style="margin-left:auto"></span></div>
     <div class="rpBottom">
       <div class="rpReps" id="rpReps"></div>
       <input id="rpBar" type="range" min="0" max="1000" value="0">
-      <div class="row"><button id="rpPlay">일시정지</button><button id="rpSpeed">×1</button></div>
-      <div class="legend2"><span style="color:#c5f03e">● 엉덩이/손목 궤적</span><span style="color:#4ade80">● 무릎/팔꿈치 궤적</span><span style="color:#aaa">— 기준 렙</span></div>
+      <div class="row"><button id="rpPlay">일시정지</button><button id="rpSpeed">×1</button><button id="rpRef">기준 겹침 켜짐</button></div>
+      <div class="legend2"><span style="color:#c5f03e">● 엉덩이/손목</span><span style="color:#4ade80">● 무릎/팔꿈치</span><span style="color:#60a5fa">╌ 가벼운 무게 기준 궤적</span></div>
     </div>
 </div>
 
@@ -378,7 +380,7 @@ function loop() {
       const res = landmarker.detectForVideo(video, ts);
       lastPose = res.landmarks && res.landmarks[0] ? res.landmarks[0] : null;
       draw();
-      if (workout) { stepWorkout(); clapToEnd(Date.now()); } else analyze();
+      if (workout) { stepWorkout(); clapToEnd(Date.now()); } else { analyze(); if (capture) stepWorkout(capture); }
     }
     frames++; if (ts - fpsT > 1000) { $("fps").textContent = frames + " fps"; frames = 0; fpsT = ts; }
   }
@@ -514,8 +516,8 @@ function clapToEnd(now) {
   $("hand").hidden = false; $("hand").textContent = "합장 유지… " + Math.min(100, Math.round(held * 100)) + "% → 세트 종료";
   if (held >= 1) { clapSince = 0; $("hand").hidden = true; endWorkout("합장"); }
 }
-function stepWorkout() {
-  const w = workout; if (!w || !lastPose) return;
+function stepWorkout(wArg) {
+  const w = wArg || workout; if (!w || !lastPose) return;
   const cfg = w.cfg, now = Date.now();
   // better-seen side
   const side = cfg.joints.reduce((s, p) => s + ((lastPose[p[1]].visibility ?? 1) > (lastPose[p[0]].visibility ?? 1) ? 1 : -1), 0) > 0 ? 1 : 0;
@@ -550,10 +552,13 @@ function stepWorkout() {
                     f0: w.repStartFrame, f1: w.frames.length };
       if (w.ref) rep.rom = Math.round((w.ref.max - w.minAngle) / (w.ref.max - w.ref.min) * 100);
       w.reps.push(rep); w.tLastRep = now;
+      if (w.capture) { beep(880, 70); say(String(rep.n), { force: true }); w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180; return; }
       if (refMode) { saveReference(w, rep); return; }
       $("repN").textContent = rep.n;
       $("repT").textContent = (rep.rom != null ? `ROM ${rep.rom}% · ` : "") + `하강 ${rep.down.toFixed(1)}s · 정지 ${rep.hold.toFixed(1)}s · 상승 ${rep.up.toFixed(1)}s`;
       beep(880, 70); say(String(rep.n), { force: true });
+    } else if (w.capture) {
+      // warm-up capture: shallow dips are just ignored
     } else if (w.tLeaveUp && w.minAngle <= cfg.up - 35) {
       // went clearly down (squat: below 125°) but never reached the bottom threshold → partial rep
       w.partial++; beep(400, 120);
@@ -565,10 +570,28 @@ function stepWorkout() {
     w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180;
   }
 }
+// The 10 s spot test doubles as the warm-up capture: light-weight reps done during it become the reference.
+let capture = null, lastWarm = null;
+function startCapture() {
+  const cfg = EX[exercise];
+  capture = { cfg, reps: [], partial: 0, state: "up", pending: null, pendingN: 0, angle: null, tLeaveUp: 0, tEnterDown: 0, tLeaveDown: 0,
+              tLastRep: 0, minAngle: 180, maxAngle: 0, started: Date.now(), armed: false, frames: [], repStartFrame: 0, ref: null, capture: true };
+}
+function finishCapture() {
+  const c = capture; capture = null; if (!c) return null;
+  lastWarm = { exercise, at: new Date().toISOString(), reps: c.reps, partial: 0, frames: c.frames, ref: null, warm: true };
+  if (!c.reps.length) return null;
+  const best = c.reps.reduce((a, b) => b.min < a.min ? b : a);   // deepest warm-up rep is the reference
+  const ref = { min: best.min, max: Math.round(Math.max(c.maxAngle, c.cfg.up + 5)), down: best.down, hold: best.hold, up: best.up,
+                frames: c.frames.slice(best.f0, best.f1), warm: c.frames, at: new Date().toISOString() };
+  SS("ref_" + exercise, JSON.stringify(ref));
+  $("refBtn").textContent = "기준 렙 다시";
+  return ref;
+}
 function saveReference(w, rep) {
   const frames = w.frames.slice(rep.f0, rep.f1);
   const ref = { min: rep.min, max: Math.round(Math.max(w.maxAngle, w.cfg.up + 5)), down: rep.down, hold: rep.hold, up: rep.up,
-                frames, at: new Date().toISOString() };
+                frames, warm: w.frames, at: new Date().toISOString() };
   SS("ref_" + exercise, JSON.stringify(ref));
   workout = null; refMode = false;
   $("stage").classList.remove("workout"); $("rep").hidden = true; $("tiltBig").hidden = false;
@@ -623,6 +646,7 @@ function endWorkout(reason) {
 $("workoutBtn").onclick = () => workout ? endWorkout("수동 종료") : startWorkout(false);
 $("refBtn").onclick = () => { if (workout) return; startWorkout(true); };
 $("replayBtn").onclick = e => { e.stopPropagation(); if (lastSession) openReplay(lastSession); };
+$("doneReplay").onclick = e => { e.stopPropagation(); if (lastWarm) openReplay(lastWarm); };
 let lastSession = null;
 
 // ---------- replay: skeleton animation + joint path, with the reference rep as a ghost ----------
@@ -632,7 +656,9 @@ let rp = null;   // replay state
 function openReplay(s) {
   if (!s.frames || !s.frames.length) { $("msg").textContent = "이 세트에는 동선 데이터가 없습니다."; return; }
   const trace = s.exercise === "squat" ? [23, 25] : [15, 13];   // hip & knee, or wrist & elbow
-  rp = { s, i: 0, playing: true, speed: 1, trace, last: performance.now(), rep: 0 };
+  rp = { s, i: 0, playing: true, speed: 1, trace, last: performance.now(), rep: 0, showRef: !!(s.ref && s.ref.frames) };
+  $("rpRef").hidden = !(s.ref && s.ref.frames); $("rpRef").textContent = "기준 겹침 켜짐";
+  $("rpTitle").textContent = s.warm ? "가벼운 무게 궤적" : "본 세트 궤적";
   $("replay").hidden = false; $("summary").hidden = true;
   buildRepButtons(); drawReplay(); requestAnimationFrame(tickReplay);
 }
@@ -663,14 +689,21 @@ function drawReplay() {
   const W = c.width, H = c.height; g.clearRect(0, 0, W, H);
   const fr = rp.s.frames, from = rp.from ?? 0, to = rp.to ?? fr.length, f = fr[rp.i];
   const P = (fr, j) => [fr[2 + TI[j] * 2] / 1000 * W, fr[3 + TI[j] * 2] / 1000 * H];
-  // reference ghost: aligned on hip centre, same frame fraction through the rep
+  // reference (light-weight) rep: path in blue + ghost skeleton, aligned on the hip centre at the start of the range
   const ref = rp.s.ref;
-  if (ref && ref.frames && ref.frames.length) {
+  if (rp.showRef && ref && ref.frames && ref.frames.length) {
+    const hip = fr0 => [(P(fr0, 23)[0] + P(fr0, 24)[0]) / 2, (P(fr0, 23)[1] + P(fr0, 24)[1]) / 2];
+    const h0 = hip(fr[from]), r0 = hip(ref.frames[0]), dx = h0[0] - r0[0], dy = h0[1] - r0[1];
+    g.setLineDash([8, 6]); g.lineWidth = 3; g.globalAlpha = .9;
+    rp.trace.forEach((j, n) => {
+      g.strokeStyle = ["#60a5fa", "#93c5fd"][n]; g.beginPath();
+      ref.frames.forEach((rf, i) => { const p = P(rf, j); i ? g.lineTo(p[0] + dx, p[1] + dy) : g.moveTo(p[0] + dx, p[1] + dy); });
+      g.stroke();
+    });
+    g.setLineDash([]); g.globalAlpha = 1;
     const k = Math.min(ref.frames.length - 1, Math.floor((rp.i - from) / Math.max(1, to - from) * ref.frames.length));
-    const rf = ref.frames[k], hipR = [(P(rf, 23)[0] + P(rf, 24)[0]) / 2, (P(rf, 23)[1] + P(rf, 24)[1]) / 2];
-    const hipN = [(P(f, 23)[0] + P(f, 24)[0]) / 2, (P(f, 23)[1] + P(f, 24)[1]) / 2];
-    const dx = hipN[0] - hipR[0], dy = hipN[1] - hipR[1];
-    g.strokeStyle = "rgba(255,255,255,.35)"; g.lineWidth = 6; g.lineCap = "round";
+    const rf = ref.frames[k];
+    g.strokeStyle = "rgba(96,165,250,.45)"; g.lineWidth = 6; g.lineCap = "round";
     for (const [a, b] of BONES) { const pa = P(rf, a), pb = P(rf, b); g.beginPath(); g.moveTo(pa[0] + dx, pa[1] + dy); g.lineTo(pb[0] + dx, pb[1] + dy); g.stroke(); }
   }
   // joint paths over the selected range
@@ -692,6 +725,7 @@ function drawReplay() {
 }
 $("rpClose").onclick = closeReplay;
 $("rpPlay").onclick = () => { rp.playing = !rp.playing; $("rpPlay").textContent = rp.playing ? "일시정지" : "재생"; };
+$("rpRef").onclick = () => { rp.showRef = !rp.showRef; $("rpRef").textContent = rp.showRef ? "기준 겹침 켜짐" : "기준 겹침 꺼짐"; };
 $("rpSpeed").onclick = () => { rp.speed = rp.speed === 1 ? 0.5 : rp.speed === 0.5 ? 0.25 : 1; $("rpSpeed").textContent = "×" + rp.speed; };
 $("rpBar").oninput = () => { const from = rp.from ?? 0, to = rp.to ?? rp.s.frames.length; rp.i = from + Math.floor(($("rpBar").value / 1000) * (to - from - 1)); rp.playing = false; $("rpPlay").textContent = "재생"; };
 
@@ -761,8 +795,8 @@ function runScore() {
   if (scoring) return;
   let n = 0, okN = 0, tiltOkN = 0; const t0 = Date.now();
   $("score").disabled = true; scoring = true; $("done").hidden = true; guideMuted = false;
-  beep(880, 120, 2);
-  say("측정 시작. 운동 동작을 해보세요", { force: true });
+  beep(880, 120, 2); startCapture();
+  say("측정 시작. 가벼운 무게로 동작을 해보세요", { force: true });
   let lastLeft = 11;
   const iv = setInterval(() => {
     n++; if (fullOk) okN++; if (tiltState === "ok") tiltOkN++;
@@ -776,6 +810,9 @@ function runScore() {
       guideMuted = true; lastTone = ""; speechSynthesis.cancel();
       const a = Math.round(okN / n * 100), b = Math.round(tiltOkN / n * 100), pass = a >= 95 && b >= 95;
       spotPassed = pass; $("workoutBtn").disabled = !pass;
+      const ref = finishCapture();
+      $("doneRef").textContent = ref ? `가벼운 무게 ${lastWarm.reps.length}회 → 기준 궤적 저장 (최저 ${ref.min}°)` : "측정 중 동작이 없어 기준 궤적은 저장되지 않았습니다";
+      $("doneReplay").hidden = !(lastWarm && lastWarm.frames.length);
       const verdict = pass ? "이 자리 합격" : a < 95 ? "동작 중 몸이 잘립니다. 거리나 높이 조정" : "폰이 흔들립니다. 거치 보강";
       $("msg").textContent = `결과: 관절 보임 ${a}% · 기울기 유지 ${b}% → ${verdict}`;
       $("donePct").textContent = Math.min(a, b) + "%";
@@ -786,7 +823,7 @@ function runScore() {
       $("doneVerdict").style.color = "#0b0f14";
       $("done").hidden = false;
       beep(pass ? 880 : 300, 160, 3);
-      say(`측정 완료. 관절 보임 ${a}퍼센트, 기울기 ${b}퍼센트. ${verdict}` + (pass ? " 동작을 시작하면 바로 셉니다." : ""), { force: true });
+      say(`측정 완료. 관절 보임 ${a}퍼센트, 기울기 ${b}퍼센트. ${verdict}` + (ref ? ` 기준 궤적 저장, 최저 ${ref.min}도.` : "") + (pass ? " 동작을 시작하면 바로 셉니다." : ""), { force: true });
       if (pass) setTimeout(() => { $("done").hidden = true; startWorkout(); }, 4000);
     }
   }, 200);
