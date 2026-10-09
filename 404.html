@@ -292,7 +292,7 @@
       <div class="rpReps" id="rpReps"></div>
       <input id="rpBar" type="range" min="0" max="1000" value="0">
       <div class="row"><button id="rpPlay">일시정지</button><button id="rpSpeed">×1</button><button id="rpRef">기준 겹침 켜짐</button></div>
-      <div class="legend2"><span style="color:#c5f03e">● 엉덩이/손목</span><span style="color:#4ade80">● 무릎/팔꿈치</span><span style="color:#60a5fa">╌ 가벼운 무게 기준 궤적</span></div>
+      <div class="legend2"><span style="color:#c5f03e">● 엉덩이/손목</span><span style="color:#4ade80">● 무릎/팔꿈치</span><span style="color:#60a5fa">╌ 가벼운 무게 기준 궤적</span><span style="color:#f87171">◎ 고정점 (무게와 가장 먼 관절)</span></div>
     </div>
 </div>
 
@@ -311,9 +311,9 @@ const $ = id => document.getElementById(id);
 // angle: the three joints (A-B-C, angle at B) the rep counter watches. up/down: angle thresholds for the two states.
 // A rep = leave UP → reach DOWN → return to UP. Between the thresholds is a dead band that stops flicker.
 const EX = {
-  squat:  { joints: [[23,24],[25,26],[27,28]], names: ["엉덩이","무릎","발목"], span: [0.35, 0.80], axis: "y",   tip: "측면 45°, 1.2~1.8m", up: 160, down: 100, label: "스쿼트" },
-  pushup: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.25, 0.70], axis: "max", tip: "측면, 폰 바닥 가까이", up: 150, down: 95, label: "푸시업" },
-  curl:   { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y",   tip: "정면, 1~1.5m", up: 150, down: 60, label: "덤벨 컬" },
+  squat:  { joints: [[23,24],[25,26],[27,28]], names: ["엉덩이","무릎","발목"], span: [0.35, 0.80], axis: "y",   tip: "측면 45°, 1.2~1.8m", up: 160, down: 100, label: "스쿼트", anchor: 2 },
+  pushup: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.25, 0.70], axis: "max", tip: "측면, 폰 바닥 가까이", up: 150, down: 95, label: "푸시업", anchor: 2 },
+  curl:   { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y",   tip: "정면, 1~1.5m", up: 150, down: 60, label: "덤벨 컬", anchor: 0 },
 };
 const LS = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const SS = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
@@ -877,29 +877,34 @@ function drawReplay() {
   const chain = fr0 => rp.cfg.joints.map(p => p[sideOf(fr0)]);       // the loaded joints only
   const trace = fr0 => { const ch = chain(fr0); return rp.s.exercise === "squat" ? [ch[0], ch[1]] : [ch[2], ch[1]]; };   // hip+knee / wrist+elbow
   const colors = ["#c5f03e", "#4ade80"];
-  // reference (light-weight) rep: dashed path + ghost chain, aligned on the first loaded joint at the start of the range
+  // anchor = the loaded joint farthest from the weight (ankle / wrist / shoulder). Every path point is drawn relative to the
+  // anchor of its own frame and placed on the anchor of the current frame, so body drift never moves the trajectory.
+  const anc = fr0 => P(fr0, chain(fr0)[rp.cfg.anchor]);
+  const A = anc(f);
+  const rel = (fr0, j) => { const p = P(fr0, j), a = anc(fr0); return [p[0] - a[0] + A[0], p[1] - a[1] + A[1]]; };
   const ref = rp.s.ref;
   if (rp.showRef && ref && ref.frames && ref.frames.length) {
-    const a0 = P(fr[from], chain(fr[from])[0]), r0 = P(ref.frames[0], chain(ref.frames[0])[0]);
-    const dx = a0[0] - r0[0], dy = a0[1] - r0[1];
     g.setLineDash([8, 6]); g.lineWidth = 3; g.globalAlpha = .9;
     [0, 1].forEach(n => {
       g.strokeStyle = ["#60a5fa", "#93c5fd"][n]; g.beginPath();
-      ref.frames.forEach((rf, i) => { const p = P(rf, trace(rf)[n]); i ? g.lineTo(p[0] + dx, p[1] + dy) : g.moveTo(p[0] + dx, p[1] + dy); });
+      ref.frames.forEach((rf, i) => { const p = rel(rf, trace(rf)[n]); i ? g.lineTo(...p) : g.moveTo(...p); });
       g.stroke();
     });
     g.setLineDash([]); g.globalAlpha = 1;
     const k = Math.min(ref.frames.length - 1, Math.floor((rp.i - from) / Math.max(1, to - from) * ref.frames.length));
     const rf = ref.frames[k];
     g.strokeStyle = "rgba(96,165,250,.55)"; g.lineWidth = 7; g.lineCap = "round"; g.beginPath();
-    chain(rf).forEach((j, q) => { const p = P(rf, j); q ? g.lineTo(p[0] + dx, p[1] + dy) : g.moveTo(p[0] + dx, p[1] + dy); }); g.stroke();
+    chain(rf).forEach((j, q) => { const p = rel(rf, j); q ? g.lineTo(...p) : g.moveTo(...p); }); g.stroke();
   }
-  // paths of the two loaded joints over the selected range
+  // paths of the two loaded joints over the selected range, anchored
   [0, 1].forEach(n => {
     g.strokeStyle = colors[n]; g.lineWidth = 3; g.globalAlpha = .9; g.beginPath();
-    for (let i = from; i < to; i++) { const p = P(fr[i], trace(fr[i])[n]); i === from ? g.moveTo(p[0], p[1]) : g.lineTo(p[0], p[1]); }
+    for (let i = from; i < to; i++) { const p = rel(fr[i], trace(fr[i])[n]); i === from ? g.moveTo(p[0], p[1]) : g.lineTo(p[0], p[1]); }
     g.stroke(); g.globalAlpha = 1;
   });
+  // anchor marker
+  g.fillStyle = "#f87171"; g.beginPath(); g.arc(A[0], A[1], 8, 0, 7); g.fill();
+  g.strokeStyle = "#f87171"; g.lineWidth = 2; g.beginPath(); g.arc(A[0], A[1], 14, 0, 7); g.stroke();
   // current loaded-joint chain
   g.strokeStyle = "#c5f03e"; g.lineWidth = 6; g.lineCap = "round"; g.beginPath();
   chain(f).forEach((j, q) => { const p = P(f, j); q ? g.lineTo(...p) : g.moveTo(...p); }); g.stroke();
