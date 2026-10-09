@@ -147,7 +147,7 @@
     <div class="bars" id="sumBars"></div>
     <div class="sub">렙별 상승 시간 (막대가 길수록 느림)</div>
     <div class="rows" id="sumRows"></div>
-    <div class="sub">화면을 탭하면 닫힙니다 · 손을 모으면 다음 세트</div>
+    <div class="sub">화면을 탭하면 닫힙니다 · "운동 시작" 버튼으로 다음 세트</div>
   </div>
   <div class="bottom">
     <div id="msg">폰을 자리에 세우고 화면 테두리가 초록이 될 때까지 각도를 조절하세요.</div>
@@ -310,7 +310,7 @@ function loop() {
       const res = landmarker.detectForVideo(video, ts);
       lastPose = res.landmarks && res.landmarks[0] ? res.landmarks[0] : null;
       draw();
-      if (workout) { stepWorkout(); checkSetEnd(); } else analyze();
+      if (workout) { stepWorkout(); clapToEnd(Date.now()); } else analyze();
     }
     frames++; if (ts - fpsT > 1000) { $("fps").textContent = frames + " fps"; frames = 0; fpsT = ts; }
   }
@@ -363,7 +363,8 @@ function analyze() {
   $("hDist").textContent = st === "ok" ? "크기 적당" : bodyFrac < lo ? "작음 → 앞으로" : "큼 → 뒤로 (또는 광각)";
   const allOk = tiltState === "ok" && fullOk && st === "ok";
   $("save").disabled = !allOk;
-  if (allOk && !scoring) $("msg").textContent = "세 가지 모두 통과. 두 손을 가슴 앞에서 모으면 10초 측정이 시작됩니다.";
+  if (allOk && !scoring && spotPassed) $("msg").textContent = "자리 합격. '운동 시작'을 누르면 대기 상태로 들어갑니다.";
+  else if (allOk && !scoring) $("msg").textContent = "세 가지 모두 통과. 두 손을 가슴 앞에서 모으면 10초 측정이 시작됩니다.";
   if (!scoring && !guideMuted) announce(allOk, tiltState, fullOk, st, $("hBody").textContent, $("hDist").textContent);
   detectClap();
 }
@@ -386,8 +387,7 @@ function detectClap() {
   if (held >= 1) {
     clapSince = 0; $("hand").hidden = true;
     clapCooldownUntil = now + 3000;
-    // first clap = 10 s spot test; after a passed test, the next clap starts the set
-    if (spotPassed) startWorkout(); else runScore();
+    runScore();
   }
 }
 $("done").onclick = () => { $("done").hidden = true; };
@@ -400,16 +400,34 @@ function jointAngle(a, b, c) {
   const dot = abx * cbx + aby * cby, m = Math.hypot(abx, aby) * Math.hypot(cbx, cby);
   return m ? Math.acos(Math.max(-1, Math.min(1, dot / m))) * 180 / Math.PI : 180;
 }
+// Armed right after a passed spot test: the set starts itself on the first movement and ends on the button or a clap.
 function startWorkout() {
   const cfg = EX[exercise];
   workout = { cfg, reps: [], partial: 0, state: "up", pending: null, pendingN: 0, angle: null,
-              tLeaveUp: 0, tEnterDown: 0, tLeaveDown: 0, tLastRep: 0, minAngle: 180, started: Date.now() };
+              tLeaveUp: 0, tEnterDown: 0, tLeaveDown: 0, tLastRep: 0, minAngle: 180, started: 0, armed: true };
   guideMuted = true; speechSynthesis.cancel(); lastTone = "";
   $("stage").classList.add("workout");
-  $("repN").textContent = "0"; $("repT").textContent = "첫 렙을 시작하세요"; $("repSub").textContent = cfg.label;
+  $("repN").textContent = "0"; $("repT").textContent = "동작을 시작하면 자동으로 셉니다"; $("repSub").textContent = cfg.label + " · 대기";
   $("rep").hidden = false; $("tiltBig").hidden = true; $("done").hidden = true;
-  $("msg").textContent = "운동 중. 10초간 렙이 없으면 세트가 자동 종료됩니다.";
-  beep(880, 120, 2); say(cfg.label + " 시작", { force: true });
+  $("workoutBtn").textContent = "운동 끝"; $("workoutBtn").disabled = false;
+  $("msg").textContent = "대기 중. 첫 동작에 세트가 시작되고, 버튼이나 합장(가슴 앞에서 두 손 모으기)으로 끝냅니다.";
+  say(cfg.label + " 준비. 동작을 시작하세요", { force: true });
+}
+function clapToEnd(now) {
+  const w = workout, p = lastPose; if (!w || !p) { clapSince = 0; $("hand").hidden = true; return; }
+  const lw = p[15], rw = p[16], ls = p[11], rs = p[12], lh = p[23], rh = p[24];
+  if ([lw, rw, ls, rs, lh, rh].some(q => (q.visibility ?? 1) < 0.5)) { clapSince = 0; $("hand").hidden = true; return; }
+  const shoulderW = Math.hypot(ls.x - rs.x, ls.y - rs.y), wristD = Math.hypot(lw.x - rw.x, lw.y - rw.y);
+  // hands together anywhere inside the torso box (shoulders → hips, with a little margin)
+  const xs = [ls.x, rs.x, lh.x, rh.x], ys = [ls.y, rs.y, lh.y, rh.y], pad = shoulderW * 0.25;
+  const wx = (lw.x + rw.x) / 2, wy = (lw.y + rw.y) / 2;
+  const inTorso = wx > Math.min(...xs) - pad && wx < Math.max(...xs) + pad && wy > Math.min(...ys) - pad && wy < Math.max(...ys) + pad;
+  const together = shoulderW > 0.05 && wristD < shoulderW * 0.35 && inTorso;
+  if (!together) { clapSince = 0; $("hand").hidden = true; return; }
+  if (!clapSince) clapSince = now;
+  const held = (now - clapSince) / 700;
+  $("hand").hidden = false; $("hand").textContent = "합장 유지… " + Math.min(100, Math.round(held * 100)) + "% → 세트 종료";
+  if (held >= 1) { clapSince = 0; $("hand").hidden = true; endWorkout("합장"); }
 }
 function stepWorkout() {
   const w = workout; if (!w || !lastPose) return;
@@ -427,6 +445,9 @@ function stepWorkout() {
   if (target === w.pending) w.pendingN++; else { w.pending = target; w.pendingN = 1; }
   if (w.pendingN < 3 || target === w.state) { if (w.state !== "up") w.minAngle = Math.min(w.minAngle, ang); return; }
   const prev = w.state; w.state = target;
+  if (w.armed && prev === "up" && target !== "up") {
+    w.armed = false; w.started = now; $("repSub").textContent = w.cfg.label; beep(880, 120, 2);
+  }
   if (prev === "up" && target === "mid") { w.tLeaveUp = now; w.minAngle = ang; $("repT").textContent = "내려가는 중"; }
   else if (target === "down") { if (!w.tEnterDown || prev !== "down") w.tEnterDown = now; $("repT").textContent = "바닥"; }
   else if (prev === "down" && target === "mid") { w.tLeaveDown = now; $("repT").textContent = "올라오는 중"; }
@@ -444,15 +465,11 @@ function stepWorkout() {
     w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180;
   }
 }
-function checkSetEnd() {
-  const w = workout; if (!w) return;
-  const idleFrom = w.tLastRep || w.started;
-  if (w.reps.length && Date.now() - idleFrom > 10000) endWorkout("자동 종료");
-  else if (!w.reps.length && Date.now() - w.started > 60000) endWorkout("렙 없음");
-}
 function endWorkout(reason) {
   const w = workout; workout = null;
-  $("stage").classList.remove("workout"); $("rep").hidden = true; $("tiltBig").hidden = false;
+  $("stage").classList.remove("workout"); $("rep").hidden = true; $("tiltBig").hidden = false; $("hand").hidden = true;
+  $("workoutBtn").textContent = "운동 시작"; clapCooldownUntil = Date.now() + 3000;
+  if (!w.reps.length && !w.partial) { $("msg").textContent = "렙 없이 종료됐습니다."; say("종료", { force: true }); return; }
   const r = w.reps, n = r.length;
   const avg = k => n ? r.reduce((s, x) => s + x[k], 0) / n : 0;
   const first = r.slice(0, 3), last = r.slice(-3);
@@ -513,7 +530,8 @@ function runScore() {
       $("doneVerdict").style.color = "#0b0f14";
       $("done").hidden = false;
       beep(pass ? 880 : 300, 160, 3);
-      say(`측정 완료. 관절 보임 ${a}퍼센트, 기울기 ${b}퍼센트. ${verdict}` + (pass ? " 손을 모으면 운동을 시작합니다." : ""), { force: true });
+      say(`측정 완료. 관절 보임 ${a}퍼센트, 기울기 ${b}퍼센트. ${verdict}` + (pass ? " 동작을 시작하면 바로 셉니다." : ""), { force: true });
+      if (pass) setTimeout(() => { $("done").hidden = true; startWorkout(); }, 4000);
     }
   }, 200);
 }
