@@ -181,9 +181,10 @@
     <button data-ex="squat" class="on">스쿼트</button>
     <button data-ex="pushup">푸시업</button>
     <button data-ex="curl">덤벨 컬</button>
+    <button data-ex="pulldown">랫풀다운</button>
   </div>
   <p class="exTip" id="exTip"></p>
-  <select id="exercise" hidden><option value="squat">스쿼트</option><option value="pushup">푸시업</option><option value="curl">덤벨 컬</option></select>
+  <select id="exercise" hidden><option value="squat">스쿼트</option><option value="pushup">푸시업</option><option value="curl">덤벨 컬</option><option value="pulldown">랫풀다운</option></select>
   <select id="facing" hidden><option value="environment">후면</option><option value="user">전면</option></select>
   <button class="card primary" id="start">
     <span class="ct">운동 시작</span>
@@ -314,6 +315,8 @@ const EX = {
   squat:  { joints: [[23,24],[25,26],[27,28]], names: ["엉덩이","무릎","발목"], span: [0.35, 0.80], axis: "y",   tip: "측면 45°, 1.2~1.8m", up: 160, down: 100, label: "스쿼트", anchor: 2 },
   pushup: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.25, 0.70], axis: "max", tip: "측면, 폰 바닥 가까이", up: 150, down: 95, label: "푸시업", anchor: 2 },
   curl:   { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y",   tip: "정면, 1~1.5m", up: 150, down: 60, label: "덤벨 컬", anchor: 0 },
+  // both arms are loaded: rep angle = mean of both elbows, plus bar level / shoulder level / arm symmetry
+  pulldown: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y", tip: "정면, 1.5~2m, 양팔 다 보이게", up: 150, down: 70, label: "랫풀다운", anchor: 0, both: true },
 };
 const LS = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const SS = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
@@ -482,11 +485,20 @@ function draw() {
   const vw = video.videoWidth, vh = video.videoHeight, cw = ov.width, ch = ov.height;
   const s = Math.max(cw / vw, ch / vh), ox = (cw - vw * s) / 2, oy = (ch - vh * s) / 2;
   const P = i => [ox + lastPose[i].x * vw * s, oy + lastPose[i].y * vh * s];
-  // only the loaded joints of this exercise, on the side the analysis uses
-  const ids = EX[exercise].joints.map(p => p[liveSide]);
-  ctx.lineWidth = 6; ctx.lineCap = "round"; ctx.strokeStyle = "rgba(197,240,62,.95)";
-  ctx.beginPath(); ids.forEach((i, k) => { const p = P(i); k ? ctx.lineTo(...p) : ctx.moveTo(...p); }); ctx.stroke();
-  ids.forEach((i, k) => { const p = P(i); ctx.fillStyle = k === 1 ? "#ffffff" : "#c5f03e"; ctx.beginPath(); ctx.arc(p[0], p[1], k === 1 ? 10 : 7, 0, 7); ctx.fill(); });
+  // only the loaded joints of this exercise: one side, or both sides for two-arm lifts (plus the bar between the wrists)
+  const cfg = EX[exercise], sides = cfg.both ? [0, 1] : [liveSide];
+  ctx.lineWidth = 6; ctx.lineCap = "round";
+  for (const sd of sides) {
+    const ids = cfg.joints.map(p => p[sd]);
+    ctx.strokeStyle = "rgba(197,240,62,.95)";
+    ctx.beginPath(); ids.forEach((i, k) => { const p = P(i); k ? ctx.lineTo(...p) : ctx.moveTo(...p); }); ctx.stroke();
+    ids.forEach((i, k) => { const p = P(i); ctx.fillStyle = k === 1 ? "#ffffff" : "#c5f03e"; ctx.beginPath(); ctx.arc(p[0], p[1], k === 1 ? 10 : 7, 0, 7); ctx.fill(); });
+  }
+  if (cfg.both) {
+    const lw = P(15), rw = P(16), tilt = Math.abs(lastPose[15].y - lastPose[16].y) / Math.max(0.05, Math.hypot(lastPose[11].x - lastPose[12].x, lastPose[11].y - lastPose[12].y));
+    ctx.strokeStyle = tilt > 0.12 ? "#f87171" : tilt > 0.06 ? "#fbbf24" : "#4ade80"; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(...lw); ctx.lineTo(...rw); ctx.stroke();
+  }
 }
 const vis = (i) => lastPose && (lastPose[i].visibility ?? 1) > 0.5 && lastPose[i].x > 0.02 && lastPose[i].x < 0.98 && lastPose[i].y > 0.02 && lastPose[i].y < 0.98;
 function analyze() {
@@ -499,13 +511,14 @@ function analyze() {
   }
   // pick the better-seen side (left or right) and require every needed joint on that side
   const score = side => cfg.joints.reduce((s, pair) => s + (vis(pair[side]) ? 1 : 0), 0);
-  const sL = score(0), sR = score(1);
+  let sL = score(0), sR = score(1);
+  if (cfg.both) { const both = cfg.joints.reduce((s, pair) => s + (vis(pair[0]) && vis(pair[1]) ? 1 : 0), 0); sL = sR = both; }
   if (scoring) { sideVotes[0] += sL; sideVotes[1] += sR; }
   const side = lockedSide != null ? lockedSide : sR > sL ? 1 : 0, seen = lockedSide != null ? [sL, sR][side] : Math.max(sL, sR);
   liveSide = side;
-  const ids = cfg.joints.map(p => p[side]);
+  const ids = cfg.both ? cfg.joints.flat() : cfg.joints.map(p => p[side]);
   fullOk = seen === cfg.joints.length;
-  const missing = cfg.joints.map((p, i) => vis(p[side]) ? null : cfg.names[i]).filter(Boolean);
+  const missing = cfg.joints.map((p, i) => (cfg.both ? vis(p[0]) && vis(p[1]) : vis(p[side])) ? null : cfg.names[i]).filter(Boolean);
   const ys = ids.map(i => lastPose[i].y), xs = ids.map(i => lastPose[i].x);
   const dy = Math.max(...ys) - Math.min(...ys), dx = Math.max(...xs) - Math.min(...xs);
   bodyFrac = cfg.axis === "max" ? Math.max(dy, dx) : dy;
@@ -618,14 +631,27 @@ function stepWorkout(wArg) {
   // better-seen side
   const visOf = sd => Math.min(...cfg.joints.map(p => lastPose[p[sd]].visibility ?? 1));
   let side = lockedSide != null ? lockedSide : (visOf(1) > visOf(0) ? 1 : 0);
+  let bal = null;
+  if (cfg.both) {
+    if (visOf(0) < 0.4 || visOf(1) < 0.4) { $("repT").textContent = "양팔이 다 보여야 해요"; return; }
+    const ang = sd => jointAngle(...cfg.joints.map(p => lastPose[p[sd]]));
+    const aL = ang(0), aR = ang(1), L = lastPose, sw = Math.max(0.05, Math.hypot(L[11].x - L[12].x, L[11].y - L[12].y));
+    bal = { bar: (L[15].y - L[16].y) / sw, sh: (L[11].y - L[12].y) / sw, diff: Math.abs(aL - aR), mean: (aL + aR) / 2 };
+    side = 0;
+  }
   // locked side hidden for over a second → fall back to the other side, otherwise never flip mid-set
   if (visOf(side) < 0.4) { if (!sideLostSince) sideLostSince = now; if (now - sideLostSince > 1000 && visOf(1 - side) >= 0.4) side = 1 - side; }
   else sideLostSince = 0;
   liveSide = side; w.side = side;
   const [A, B, C] = cfg.joints.map(p => lastPose[p[side]]);
   if ([A, B, C].some(p => (p.visibility ?? 1) < 0.4)) { $("repT").textContent = "관절이 안 보여요"; return; }
-  const raw = jointAngle(A, B, C);
-  w.angle = w.angle == null ? raw : w.angle * 0.6 + raw * 0.4;
+  const raw = bal ? bal.mean : jointAngle(A, B, C);
+  w.angle = w.angle == null ? raw : w.angle * 0.4 + raw * 0.6;   // light: landmarks are already smoothed
+  if (bal && w.ready && !w.armed) {
+    const b = w.bal || (w.bal = { bar: 0, sh: 0, diff: 0 });
+    b.bar = Math.max(b.bar, Math.abs(bal.bar)); b.sh = Math.max(b.sh, Math.abs(bal.sh)); b.diff = Math.max(b.diff, bal.diff);
+    if (w.state !== "up" && Math.abs(bal.bar) > 0.12 && now - (w.balSaidAt || 0) > 3000) { w.balSaidAt = now; say(bal.bar > 0 ? "왼쪽이 낮아요" : "오른쪽이 낮아요", { force: true }); }
+  }
   const ang = w.angle;
   $("repAng").textContent = Math.round(ang) + "°";
   // arming: countdown first (phone handling / posture setup is ignored), then a still standing stance for 1 s
@@ -668,11 +694,13 @@ function stepWorkout(wArg) {
                     up: (now - w.tLeaveDown) / 1000, rest: w.tLastRep ? (w.tLeaveUp - w.tLastRep) / 1000 : 0, min: Math.round(w.minAngle),
                     f0: w.repStartFrame, f1: w.frames.length };
       if (w.ref) rep.rom = Math.round((w.ref.max - w.minAngle) / (w.ref.max - w.ref.min) * 100);
+      if (w.bal) { rep.bar = Math.round(w.bal.bar * 100); rep.sh = Math.round(w.bal.sh * 100); rep.diff = Math.round(w.bal.diff); w.bal = null; }
       w.reps.push(rep); w.tLastRep = now;
       if (w.capture) { beep(880, 70); say(String(rep.n), { force: true }); w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180; return; }
       if (refMode) { saveReference(w, rep); return; }
       $("repN").textContent = rep.n;
-      $("repT").textContent = (rep.rom != null ? `ROM ${rep.rom}% · ` : "") + `하강 ${rep.down.toFixed(1)}s · 정지 ${rep.hold.toFixed(1)}s · 상승 ${rep.up.toFixed(1)}s`;
+      $("repT").textContent = (rep.rom != null ? `ROM ${rep.rom}% · ` : "") + `하강 ${rep.down.toFixed(1)}s · 정지 ${rep.hold.toFixed(1)}s · 상승 ${rep.up.toFixed(1)}s`
+        + (rep.bar != null ? ` · 바 ${rep.bar}% · 팔차 ${rep.diff}°` : "");
       beep(880, 70); say(String(rep.n), { force: true });
     } else if (w.capture) {
       // warm-up capture: shallow dips are just ignored
@@ -787,10 +815,17 @@ function endWorkout(reason) {
   $("sumList").innerHTML = r.map((x, i) => `
     <div class="rr ${i === fi ? "fast" : i === si ? "slow" : ""}">
       <span class="no">${x.n}</span><b>${tot(x).toFixed(1)}s</b>
-      <span class="seg">↓${x.down.toFixed(1)} · ■${x.hold.toFixed(1)} · ↑${x.up.toFixed(1)}</span><span class="min">${x.min}°</span>
+      <span class="seg">↓${x.down.toFixed(1)} · ■${x.hold.toFixed(1)} · ↑${x.up.toFixed(1)}${x.bar != null ? ` · 바${x.bar}%·팔${x.diff}°` : ""}</span><span class="min">${x.min}°</span>
     </div>`).join("");
   $("summary").hidden = false;
   $("sumRows").innerHTML += w.ref ? `<div class="kv"><span>기준 대비 ROM 평균</span><b>${Math.round(avg("rom"))}%</b></div>` : "";
+  if (w.cfg.both && n) {
+    const mx = k => Math.max(...r.map(x => x[k] || 0));
+    $("sumRows").innerHTML += `<div class="kv"><span>바 기울기 (평균 / 최대)</span><b>${Math.round(avg("bar"))}% / ${mx("bar")}%</b></div>
+      <div class="kv"><span>어깨 기울기 (평균 / 최대)</span><b>${Math.round(avg("sh"))}% / ${mx("sh")}%</b></div>
+      <div class="kv"><span>좌우 팔 각도 차 (평균 / 최대)</span><b>${Math.round(avg("diff"))}° / ${mx("diff")}°</b></div>
+      <div class="kv"><span>균형 판정</span><b>${mx("bar") > 12 || mx("diff") > 15 ? "한쪽 쏠림 있음" : "양호"}</b></div>`;
+  }
   const sessions = JSON.parse(LS("sessions") || "[]");
   lastSession = { exercise, at: new Date().toISOString(), reps: r, partial: w.partial, frames: w.frames, started: w.started,
                   ref: w.ref ? { min: w.ref.min, max: w.ref.max, frames: w.ref.frames } : null };
@@ -874,12 +909,14 @@ function drawReplay() {
   const P = (fr0, j) => vw ? [ox + fr0[2 + TI[j] * 2] / 1000 * vw * sc, oy + fr0[3 + TI[j] * 2] / 1000 * vh * sc]
                            : [fr0[2 + TI[j] * 2] / 1000 * W, fr0[3 + TI[j] * 2] / 1000 * H];
   const sideOf = fr0 => fr0[2 + TRACK.length * 2] || 0;
-  const chain = fr0 => rp.cfg.joints.map(p => p[sideOf(fr0)]);       // the loaded joints only
-  const trace = fr0 => { const ch = chain(fr0); return rp.s.exercise === "squat" ? [ch[0], ch[1]] : [ch[2], ch[1]]; };   // hip+knee / wrist+elbow
+  const both = !!rp.cfg.both;
+  const chain = fr0 => rp.cfg.joints.map(p => p[sideOf(fr0)]);       // the loaded joints only (one side)
+  const chain2 = fr0 => rp.cfg.joints.map(p => p[1]);
+  const trace = fr0 => { const ch = chain(fr0); return both ? [15, 16] : rp.s.exercise === "squat" ? [ch[0], ch[1]] : [ch[2], ch[1]]; };   // wrists / hip+knee / wrist+elbow
   const colors = ["#c5f03e", "#4ade80"];
   // anchor = the loaded joint farthest from the weight (ankle / wrist / shoulder). Every path point is drawn relative to the
   // anchor of its own frame and placed on the anchor of the current frame, so body drift never moves the trajectory.
-  const anc = fr0 => P(fr0, chain(fr0)[rp.cfg.anchor]);
+  const anc = fr0 => { if (!both) return P(fr0, chain(fr0)[rp.cfg.anchor]); const a = P(fr0, 11), b = P(fr0, 12); return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; };
   const A = anc(f);
   const rel = (fr0, j) => { const p = P(fr0, j), a = anc(fr0); return [p[0] - a[0] + A[0], p[1] - a[1] + A[1]]; };
   const ref = rp.s.ref;
@@ -905,10 +942,14 @@ function drawReplay() {
   // anchor marker
   g.fillStyle = "#f87171"; g.beginPath(); g.arc(A[0], A[1], 8, 0, 7); g.fill();
   g.strokeStyle = "#f87171"; g.lineWidth = 2; g.beginPath(); g.arc(A[0], A[1], 14, 0, 7); g.stroke();
-  // current loaded-joint chain
-  g.strokeStyle = "#c5f03e"; g.lineWidth = 6; g.lineCap = "round"; g.beginPath();
-  chain(f).forEach((j, q) => { const p = P(f, j); q ? g.lineTo(...p) : g.moveTo(...p); }); g.stroke();
-  chain(f).forEach((j, q) => { const p = P(f, j); g.fillStyle = q === 1 ? "#ffffff" : "#c5f03e"; g.beginPath(); g.arc(p[0], p[1], q === 1 ? 10 : 7, 0, 7); g.fill(); });
+  // current loaded-joint chain(s)
+  for (const ch of both ? [chain(f), chain2(f)] : [chain(f)]) {
+    g.strokeStyle = "#c5f03e"; g.lineWidth = 6; g.lineCap = "round"; g.beginPath();
+    ch.forEach((j, q) => { const p = P(f, j); q ? g.lineTo(...p) : g.moveTo(...p); }); g.stroke();
+    ch.forEach((j, q) => { const p = P(f, j); g.fillStyle = q === 1 ? "#ffffff" : "#c5f03e"; g.beginPath(); g.arc(p[0], p[1], q === 1 ? 10 : 7, 0, 7); g.fill(); });
+  }
+  if (both) { const lw = P(f, 15), rw = P(f, 16), sw = Math.hypot(...[P(f, 11)[0] - P(f, 12)[0], P(f, 11)[1] - P(f, 12)[1]]) || 1, tilt = Math.abs(lw[1] - rw[1]) / sw;
+    g.strokeStyle = tilt > 0.12 ? "#f87171" : tilt > 0.06 ? "#fbbf24" : "#4ade80"; g.lineWidth = 5; g.beginPath(); g.moveTo(...lw); g.lineTo(...rw); g.stroke(); }
   trace(f).forEach((j, n) => { const p = P(f, j); g.fillStyle = colors[n]; g.beginPath(); g.arc(p[0], p[1], 9, 0, 7); g.fill(); });
   const t = (f[0] - fr[from][0]) / 1000;
   if (rp.playing) $("rpBar").value = Math.round((rp.i - from) / Math.max(1, to - from - 1) * 1000);
