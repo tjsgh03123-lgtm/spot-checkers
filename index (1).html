@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>자리 체커</title>
+<style>
+  /* Layout: full-screen camera, one status band on top, controls at bottom. Tilt state paints the whole frame edge. */
+  :root {
+    --bg: #0b0f14;
+    --fg: #f2f4f6;
+    --muted: #8a97a5;
+    --panel: rgba(12, 18, 26, 0.78);
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --accent: #c5f03e;
+    --state: var(--bad);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, "Noto Sans KR", "Apple SD Gothic Neo", system-ui, sans-serif; overflow: hidden; }
+  #stage { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  #cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+  #cam.mirror, #ov.mirror { transform: scaleX(-1); }
+  #ov { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #frame { position: absolute; inset: 0; pointer-events: none; border: 12px solid var(--state);
+    transition: border-color .25s; }
+  .top { position: relative; padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 12px;
+    background: linear-gradient(to bottom, rgba(11,15,20,.9), rgba(11,15,20,0)); }
+  .gauges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .g { background: var(--panel); border-radius: 14px; padding: 10px 12px; backdrop-filter: blur(8px);
+    border-left: 5px solid var(--muted); }
+  .g.ok { border-left-color: var(--ok); } .g.warn { border-left-color: var(--warn); } .g.bad { border-left-color: var(--bad); }
+  .g .k { font-size: 11px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+  .g .v { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; margin-top: 2px; }
+  .g .h { font-size: 12px; color: var(--fg); opacity: .85; margin-top: 2px; min-height: 15px; }
+  #tiltBig { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); text-align: center;
+    pointer-events: none; text-shadow: 0 2px 12px rgba(0,0,0,.8); }
+  #tiltBig .n { font-size: 96px; font-weight: 900; line-height: 1; color: var(--state); font-variant-numeric: tabular-nums; }
+  #tiltBig .t { font-size: 20px; font-weight: 700; margin-top: 6px; }
+  .bottom { margin-top: auto; position: relative; padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
+    background: linear-gradient(to top, rgba(11,15,20,.95), rgba(11,15,20,0)); display: flex; flex-direction: column; gap: 10px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { font: inherit; font-weight: 700; font-size: 15px; border: 0; border-radius: 12px; padding: 12px 14px;
+    background: #1d2733; color: var(--fg); flex: 1; min-width: 0; }
+  button.primary { background: var(--accent); color: #0b0f14; }
+  button:disabled { opacity: .45; }
+  .meta { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+  #msg { background: var(--panel); border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.4; }
+  #setup { position: fixed; inset: 0; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 28px) 20px 28px;
+    display: flex; flex-direction: column; gap: 16px; overflow: auto; }
+  #setup h1 { font-size: 28px; margin: 0; }
+  #setup p { margin: 0; color: var(--muted); line-height: 1.5; }
+  label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+  input[type=number], select { font: inherit; font-size: 18px; padding: 12px; border-radius: 12px; border: 1px solid #2a3642;
+    background: #121a23; color: var(--fg); }
+  .legend { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 14px; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; margin-top: 3px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="setup">
+  <h1>자리 체커</h1>
+  <p>폰을 세워둘 자리가 운동 측정에 적합한지 기울기 · 화면 크기 · 필요 관절로 확인합니다. 전신이 다 보일 필요는 없고, 그 운동에 쓰는 관절만 보이면 됩니다. 후면 카메라로 두면 음성으로 안내합니다. 영상은 폰 밖으로 나가지 않습니다.</p>
+  <label>운동
+    <select id="exercise">
+      <option value="squat">스쿼트 — 엉덩이·무릎·발목 (측면 45°, 1.2~1.8m)</option>
+      <option value="pushup">푸시업 — 어깨·팔꿈치·손목 (측면, 폰 바닥 가까이)</option>
+      <option value="curl">덤벨 컬 — 어깨·팔꿈치·손목 (정면, 1~1.5m)</option>
+    </select>
+  </label>
+  <label>카메라
+    <select id="facing">
+      <option value="environment">후면 (화면이 안 보여도 됨)</option>
+      <option value="user">전면 (화면을 보면서)</option>
+    </select>
+  </label>
+  <div class="legend">
+    <span class="dot" style="background:var(--ok)"></span><span>초록: 기울기 80~95°, 딱 좋음</span>
+    <span class="dot" style="background:var(--warn)"></span><span>노랑: 65~80° 또는 95~105°, 쓸 수는 있음</span>
+    <span class="dot" style="background:var(--bad)"></span><span>빨강: 그 밖, 다시 세우세요</span>
+  </div>
+  <button class="primary" id="start">시작 (카메라 · 센서 권한 허용)</button>
+  <p id="setupErr" style="color:var(--bad)"></p>
+  <p id="ctx" style="font-size:12px"></p>
+</div>
+
+<div id="stage" hidden>
+  <video id="cam" playsinline muted autoplay></video>
+  <canvas id="ov"></canvas>
+  <div id="frame"></div>
+  <div class="top">
+    <div class="gauges">
+      <div class="g" id="gTilt"><div class="k">기울기</div><div class="v" id="vTilt">--°</div><div class="h" id="hTilt">센서 대기</div></div>
+      <div class="g" id="gDist"><div class="k">화면 크기</div><div class="v" id="vDist">--</div><div class="h" id="hDist">사람 없음</div></div>
+      <div class="g" id="gBody"><div class="k">필요 관절</div><div class="v" id="vBody">--</div><div class="h" id="hBody">사람 없음</div></div>
+    </div>
+  </div>
+  <div id="tiltBig"><div class="n" id="bigN">--</div><div class="t" id="bigT">폰을 세우세요</div></div>
+  <div class="bottom">
+    <div id="msg">폰을 자리에 세우고 화면 테두리가 초록이 될 때까지 각도를 조절하세요.</div>
+    <div class="row">
+      <button id="flip">카메라 전환</button>
+      <button id="voice">음성 켜짐</button>
+      <button id="score" class="primary">10초 측정</button>
+      <button id="save" disabled>자리 저장</button>
+    </div>
+    <div class="meta"><span id="camName">카메라</span><span id="fps">-- fps</span><span id="roll">좌우 0°</span><span id="saved"></span></div>
+  </div>
+</div>
+
+<script type="module">
+import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+const $ = id => document.getElementById(id);
+// Only the joints the rep counter needs must be in frame. Head or feet may be cut off.
+// joints: landmark ids (L/R pairs); one side visible is enough. span: how much of the frame those joints should cover.
+const EX = {
+  squat:  { joints: [[23,24],[25,26],[27,28]], names: ["엉덩이","무릎","발목"], span: [0.35, 0.80], axis: "y",   tip: "측면 45°, 1.2~1.8m" },
+  pushup: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.25, 0.70], axis: "max", tip: "측면, 폰 바닥 가까이" },
+  curl:   { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y",   tip: "정면, 1~1.5m" },
+};
+const LS = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const SS = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+
+let exercise = "squat", heightCm = 175, facing = "environment", deviceId = null, cams = [], camIdx = -1;
+let tilt = null, roll = 0, tiltState = "bad";
+let lastPose = null, bodyFrac = 0, fullOk = false, distM = null;
+let landmarker, video = $("cam"), ov = $("ov"), ctx = ov.getContext("2d");
+
+// ---------- tilt ----------
+function tiltClass(deg) {
+  if (deg == null) return "bad";
+  if (deg >= 80 && deg <= 95) return "ok";
+  if ((deg >= 65 && deg < 80) || (deg > 95 && deg <= 105)) return "warn";
+  return "bad";
+}
+function onOrient(e) {
+  if (e.beta == null) return;
+  // beta: front-back. Phone standing upright in portrait ≈ 90. Leaning back → smaller.
+  let b = e.beta; if (b < 0) b = -b;
+  tilt = tilt == null ? b : tilt * 0.7 + b * 0.3;
+  roll = e.gamma || 0;
+  tiltState = tiltClass(tilt);
+  const c = getComputedStyle(document.documentElement);
+  document.documentElement.style.setProperty("--state",
+    tiltState === "ok" ? c.getPropertyValue("--ok") : tiltState === "warn" ? c.getPropertyValue("--warn") : c.getPropertyValue("--bad"));
+  $("vTilt").textContent = tilt.toFixed(0) + "°";
+  $("bigN").textContent = tilt.toFixed(0) + "°";
+  $("gTilt").className = "g " + tiltState;
+  $("hTilt").textContent = tiltState === "ok" ? "딱 좋음" : tilt < 80 ? "윗부분을 앞으로" : "윗부분을 뒤로";
+  $("bigT").textContent = tiltState === "ok" ? "기울기 OK" : tilt < 80 ? "더 세우세요" : "살짝 눕히세요";
+  $("roll").textContent = "좌우 " + Math.abs(roll).toFixed(0) + "°" + (Math.abs(roll) > 5 ? " (수평 맞추기)" : "");
+}
+async function startSensors() {
+  if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+    const r = await DeviceOrientationEvent.requestPermission();
+    if (r !== "granted") throw new Error("기울기 센서 권한이 거부되었습니다.");
+  }
+  window.addEventListener("deviceorientation", onOrient);
+}
+
+// ---------- camera + pose ----------
+function explainCameraError(e) {
+  const n = e && e.name;
+  if (!window.isSecureContext) return "이 주소는 https가 아니라서 브라우저가 카메라를 막았습니다. 파일을 직접 열거나(file://) http 주소로 열면 항상 거부됩니다. https 주소에 올린 뒤 Chrome에서 여세요.";
+  if (n === "NotAllowedError" || n === "SecurityError") return "카메라 권한이 거부된 상태입니다. 주소창 왼쪽 자물쇠 → 권한 → 카메라 '허용' 후 새로고침하세요. 폰 설정 → 앱 → Chrome → 권한 → 카메라도 확인하세요.";
+  if (n === "NotFoundError" || n === "OverconstrainedError") return "선택한 카메라를 찾지 못했습니다. 카메라를 전면으로 바꿔 다시 시도하세요.";
+  if (n === "NotReadableError") return "다른 앱이 카메라를 쓰고 있습니다. 카메라 앱·화상통화를 닫고 다시 시도하세요.";
+  return "카메라 오류: " + ((e && e.message) || String(e));
+}
+async function startCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    const err = new Error("x"); err.name = window.isSecureContext ? "NotFoundError" : "SecurityError"; throw err;
+  }
+  let stream;
+  const base = { width: { ideal: 640 }, height: { ideal: 960 } };
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: deviceId ? { deviceId: { exact: deviceId }, ...base } : { facingMode: { ideal: facing }, ...base }, audio: false });
+  } catch (e) {
+    if (e.name === "OverconstrainedError" || e.name === "NotFoundError") {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });   // any camera
+    } else throw e;
+  }
+  video.srcObject = stream;
+  await new Promise(r => video.onloadedmetadata = r);
+  await video.play();
+  // after permission, labels are readable: build the camera list once (ultrawide shows up here on most Androids)
+  if (!cams.length) {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    cams = all.filter(d => d.kind === "videoinput");
+    const cur = stream.getVideoTracks()[0].getSettings().deviceId;
+    camIdx = cams.findIndex(d => d.deviceId === cur);
+  }
+  const track = stream.getVideoTracks()[0], label = (track.label || "").toLowerCase();
+  const isFront = facing === "user" || /front|user|전면/.test(label);
+  video.classList.toggle("mirror", isFront); ov.classList.toggle("mirror", isFront);
+  $("camName").textContent = camLabel(track.label, camIdx);
+}
+function camLabel(label, i) {
+  const l = (label || "").toLowerCase();
+  if (/ultra|wide|0\.5|광각/.test(l)) return "초광각";
+  if (/front|user|전면/.test(l)) return "전면";
+  if (/back|rear|environment|후면/.test(l)) return "후면" + (cams.length > 2 ? " " + (i + 1) : "");
+  return "카메라 " + (i + 1);
+}
+
+// ---------- voice + sounds (rear camera: you can't see the screen) ----------
+let audioCtx = null, voiceOn = true, lastSpoken = "", lastSpokeAt = 0, lastTone = "";
+function beep(freq, ms, count = 1) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    for (let k = 0; k < count; k++) {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = freq; o.connect(g); g.connect(audioCtx.destination);
+      const t = audioCtx.currentTime + k * (ms / 1000 + 0.08);
+      g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t + ms / 1000);
+      o.start(t); o.stop(t + ms / 1000);
+    }
+  } catch {}
+}
+function say(text, { force = false, every = 4000 } = {}) {
+  if (!voiceOn || !("speechSynthesis" in window)) return;
+  const now = Date.now();
+  if (!force && text === lastSpoken && now - lastSpokeAt < every) return;
+  if (!force && text !== lastSpoken && now - lastSpokeAt < 1200) return;   // don't talk over yourself
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text); u.lang = "ko-KR"; u.rate = 1.05;
+  speechSynthesis.speak(u); lastSpoken = text; lastSpokeAt = now;
+}
+function announce(allOk, tiltSt, bodyOk, sizeSt, hintBody, hintSize) {
+  // priority: tilt → joints in frame → size. One short sentence at a time.
+  let text, tone;
+  if (tiltSt !== "ok") { text = tilt == null ? "기울기 센서 없음" : tilt < 80 ? "폰을 더 세우세요" : "폰을 살짝 눕히세요"; tone = "bad"; }
+  else if (!bodyOk) { text = hintBody.replace(/ → /g, ", ").replace(/\(.*?\)/g, ""); tone = "warn"; }
+  else if (sizeSt !== "ok") { text = hintSize.includes("앞으로") ? "조금 앞으로 오세요" : "조금 뒤로 가세요"; tone = "warn"; }
+  else { text = "준비 완료"; tone = "ok"; }
+  if (tone !== lastTone) { beep(tone === "ok" ? 880 : tone === "warn" ? 520 : 300, tone === "ok" ? 140 : 90, tone === "ok" ? 2 : 1); lastTone = tone; }
+  say(text, { every: tone === "ok" ? 15000 : 4000 });
+}
+async function loadPose() {
+  const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+  landmarker = await PoseLandmarker.createFromOptions(vision, {
+    baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task", delegate: "GPU" },
+    runningMode: "VIDEO", numPoses: 1 });
+}
+const EDGES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
+let frames = 0, fpsT = performance.now(), lastTs = -1;
+function loop() {
+  if (video.readyState >= 2 && landmarker) {
+    const ts = performance.now();
+    if (ts !== lastTs) {
+      lastTs = ts;
+      const res = landmarker.detectForVideo(video, ts);
+      lastPose = res.landmarks && res.landmarks[0] ? res.landmarks[0] : null;
+      draw(); analyze();
+    }
+    frames++; if (ts - fpsT > 1000) { $("fps").textContent = frames + " fps"; frames = 0; fpsT = ts; }
+  }
+  requestAnimationFrame(loop);
+}
+function draw() {
+  if (ov.width !== ov.clientWidth || ov.height !== ov.clientHeight) { ov.width = ov.clientWidth; ov.height = ov.clientHeight; }
+  ctx.clearRect(0, 0, ov.width, ov.height);
+  if (!lastPose) return;
+  // object-fit: cover mapping
+  const vw = video.videoWidth, vh = video.videoHeight, cw = ov.width, ch = ov.height;
+  const s = Math.max(cw / vw, ch / vh), ox = (cw - vw * s) / 2, oy = (ch - vh * s) / 2;
+  const P = i => [ox + lastPose[i].x * vw * s, oy + lastPose[i].y * vh * s];
+  ctx.lineWidth = 4; ctx.strokeStyle = "rgba(197,240,62,.9)"; ctx.fillStyle = "#c5f03e";
+  for (const [a, b] of EDGES) { const pa = P(a), pb = P(b); ctx.beginPath(); ctx.moveTo(...pa); ctx.lineTo(...pb); ctx.stroke(); }
+  for (const i of [0,11,12,13,14,15,16,23,24,25,26,27,28]) { const p = P(i); ctx.beginPath(); ctx.arc(p[0], p[1], 6, 0, 7); ctx.fill(); }
+}
+const vis = (i) => lastPose && (lastPose[i].visibility ?? 1) > 0.5 && lastPose[i].x > 0.02 && lastPose[i].x < 0.98 && lastPose[i].y > 0.02 && lastPose[i].y < 0.98;
+function analyze() {
+  const cfg = EX[exercise];
+  if (!lastPose) {
+    bodyFrac = 0; fullOk = false;
+    $("vBody").textContent = "--"; $("hBody").textContent = "사람 없음"; $("gBody").className = "g bad";
+    $("vDist").textContent = "--"; $("hDist").textContent = "사람 없음"; $("gDist").className = "g bad";
+    $("save").disabled = true; return;
+  }
+  // pick the better-seen side (left or right) and require every needed joint on that side
+  const score = side => cfg.joints.reduce((s, pair) => s + (vis(pair[side]) ? 1 : 0), 0);
+  const sL = score(0), sR = score(1), side = sR > sL ? 1 : 0, seen = Math.max(sL, sR);
+  const ids = cfg.joints.map(p => p[side]);
+  fullOk = seen === cfg.joints.length;
+  const missing = cfg.joints.map((p, i) => vis(p[side]) ? null : cfg.names[i]).filter(Boolean);
+  const ys = ids.map(i => lastPose[i].y), xs = ids.map(i => lastPose[i].x);
+  const dy = Math.max(...ys) - Math.min(...ys), dx = Math.max(...xs) - Math.min(...xs);
+  bodyFrac = cfg.axis === "max" ? Math.max(dy, dx) : dy;
+  $("vBody").textContent = seen + "/" + cfg.joints.length;
+  $("gBody").className = "g " + (fullOk ? "ok" : seen >= cfg.joints.length - 1 ? "warn" : "bad");
+  if (fullOk) $("hBody").textContent = "필요 관절 모두 보임";
+  else {
+    const lowest = missing.includes("발목") ? "발목이 잘림 → 폰 낮추기 또는 뒤로" : missing.includes("어깨") ? "어깨가 잘림 → 폰 높이기" : missing.join("·") + " 안 보임";
+    $("hBody").textContent = lowest;
+  }
+
+  // how much of the frame the needed joints cover decides near/far. No metres, no calibration.
+  const [lo, hi] = cfg.span;
+  const st = bodyFrac >= lo && bodyFrac <= hi ? "ok" : (bodyFrac > lo - 0.08 && bodyFrac < hi + 0.08) ? "warn" : "bad";
+  distM = null;
+  $("vDist").textContent = Math.round(bodyFrac * 100) + "%";
+  $("gDist").className = "g " + st;
+  $("hDist").textContent = st === "ok" ? "크기 적당" : bodyFrac < lo ? "작음 → 앞으로" : "큼 → 뒤로 (또는 광각)";
+  const allOk = tiltState === "ok" && fullOk && st === "ok";
+  $("save").disabled = !allOk;
+  if (allOk && !scoring) $("msg").textContent = "세 가지 모두 통과. 이 자리를 저장하거나 10초 측정으로 안정성을 확인하세요.";
+  if (!scoring) announce(allOk, tiltState, fullOk, st, $("hBody").textContent, $("hDist").textContent);
+}
+let scoring = false;
+
+// ---------- actions ----------
+$("flip").onclick = async () => {
+  if (cams.length > 1) { camIdx = (camIdx + 1) % cams.length; deviceId = cams[camIdx].deviceId; }
+  else { facing = facing === "user" ? "environment" : "user"; deviceId = null; }
+  try { video.srcObject?.getTracks().forEach(t => t.stop()); await startCamera(); say($("camName").textContent + " 카메라", { force: true }); }
+  catch (e) { $("msg").textContent = "카메라 전환 실패: " + e.message; }
+};
+$("voice").onclick = () => { voiceOn = !voiceOn; $("voice").textContent = voiceOn ? "음성 켜짐" : "음성 꺼짐"; if (!voiceOn) speechSynthesis.cancel(); };
+$("score").onclick = () => {
+  let n = 0, okN = 0, tiltOkN = 0; const t0 = Date.now();
+  $("score").disabled = true; scoring = true;
+  say("10초 측정 시작. 운동 동작을 해보세요", { force: true });
+  let lastLeft = 11;
+  const iv = setInterval(() => {
+    n++; if (fullOk) okN++; if (tiltState === "ok") tiltOkN++;
+    const left = 10 - Math.floor((Date.now() - t0) / 1000);
+    if (left !== lastLeft && left <= 3 && left > 0) beep(660, 80);
+    lastLeft = left;
+    $("msg").textContent = `측정 중… ${left}초 (지금 그 자리에서 운동 동작을 해보세요)`;
+    if (Date.now() - t0 >= 10000) {
+      clearInterval(iv); $("score").disabled = false; scoring = false;
+      const a = Math.round(okN / n * 100), b = Math.round(tiltOkN / n * 100);
+      const verdict = a >= 95 && b >= 95 ? "이 자리 합격" : a < 95 ? "동작 중 몸이 잘립니다. 거리나 높이 조정" : "폰이 흔들립니다. 거치 보강";
+      $("msg").textContent = `결과: 관절 보임 ${a}% · 기울기 유지 ${b}% → ${verdict}`;
+      beep(a >= 95 && b >= 95 ? 880 : 300, 160, 3);
+      say(`측정 끝. 관절 보임 ${a}퍼센트, 기울기 ${b}퍼센트. ${verdict}`, { force: true });
+    }
+  }, 200);
+};
+$("save").onclick = () => {
+  const spots = JSON.parse(LS("spots") || "[]");
+  spots.push({ exercise, tilt: Math.round(tilt), dist: distM ? +distM.toFixed(1) : null, body: Math.round(bodyFrac * 100), at: new Date().toISOString() });
+  SS("spots", JSON.stringify(spots));
+  $("saved").textContent = `저장 ${spots.length}개`;
+  $("msg").textContent = `저장됨: ${exercise} · ${Math.round(tilt)}° · ${distM ? distM.toFixed(1) + "m" : "-"} · 전신 ${Math.round(bodyFrac*100)}%`;
+};
+
+$("start").onclick = async () => {
+  exercise = $("exercise").value; facing = $("facing").value;
+  $("start").disabled = true; $("start").textContent = "준비 중…";
+  beep(660, 60);   // unlock audio on this tap so later cues can play
+  try {
+    try { await startCamera(); } catch (e) { throw new Error(explainCameraError(e)); }
+    try { await startSensors(); } catch (e) { $("hTilt").textContent = "센서 거부됨"; }
+    $("start").textContent = "분석 모델 받는 중…";
+    await loadPose();
+    $("setup").hidden = true; $("stage").hidden = false;
+    const spots = JSON.parse(LS("spots") || "[]"); if (spots.length) $("saved").textContent = `저장 ${spots.length}개`;
+    try { await navigator.wakeLock?.request("screen"); } catch {}
+    say("자리 체커 시작. " + EX[exercise].tip, { force: true });
+    loop();
+  } catch (e) {
+    $("setupErr").textContent = (e && e.message) || String(e);
+    $("start").disabled = false; $("start").textContent = "다시 시도";
+  }
+};
+$("ctx").textContent = window.isSecureContext
+  ? "주소 확인: https — 카메라 사용 가능"
+  : "주소 확인: https가 아님 (" + location.protocol + ") — 이 상태로는 카메라가 열리지 않습니다";
+$("ctx").style.color = window.isSecureContext ? "var(--ok)" : "var(--bad)";
+</script>
+</body>
+</html>
