@@ -195,7 +195,7 @@
   </button>
   <button class="card" id="settingsBtn">
     <span class="ct">설정</span>
-    <span class="cs" id="setSub">카메라 · 음성 · 기준 렙</span>
+    <span class="cs" id="setSub">카메라 · 음성 · 기준 궤적</span>
   </button>
   <p id="setupErr" style="color:var(--bad)"></p>
   <p id="ctx" style="font-size:12px;margin-top:auto"></p>
@@ -210,9 +210,9 @@
   <div class="setRow"><span>기울기 초록 범위</span><b>80~95°</b></div>
   <div class="setRow"><span>얕은 렙 기준</span><b>기준 깊이의 85% 미만</b></div>
   <div class="setBlock">
-    <b>기준 렙 (운동별)</b>
+    <b>기준 궤적 (운동별)</b>
     <div id="refList"></div>
-    <p class="sub">10초 워밍업 때 자동 저장됩니다. 지우면 고정 각도로 판정합니다.</p>
+    <p class="sub">10초 측정 때마다 가장 깊은 렙으로 갱신됩니다. 지우면 고정 각도(스쿼트 100°)로 판정합니다.</p>
   </div>
   <div class="setBlock">
     <b>데이터</b>
@@ -277,7 +277,6 @@
       <button class="ib" id="flip"><span class="ie">🔄</span><span class="il" id="flipL">카메라</span></button>
       <button class="ib" id="voice"><span class="ie" id="voiceE">🔊</span><span class="il">음성</span></button>
       <button class="ib" id="score"><span class="ie">⏱</span><span class="il">10초</span></button>
-      <button class="ib" id="refBtn"><span class="ie">📏</span><span class="il" id="refL">기준</span></button>
       <button class="ib" id="save" disabled><span class="ie">📍</span><span class="il">자리</span></button>
     </div>
     <div class="meta"><span id="camName">카메라</span><span id="fps">-- fps</span><span id="roll">좌우 0°</span><span id="saved"></span></div>
@@ -742,7 +741,6 @@ function finishCapture() {
   const ref = { min: best.min, max: Math.round(Math.max(c.maxAngle, c.cfg.up + 5)), down: best.down, hold: best.hold, up: best.up,
                 frames: c.frames.slice(best.f0, best.f1), warm: c.frames, at: new Date().toISOString() };
   SS("ref_" + exercise, JSON.stringify(ref));
-  $("refL").textContent = "기준✓";
   return ref;
 }
 function saveReference(w, rep) {
@@ -753,7 +751,6 @@ function saveReference(w, rep) {
   workout = null; refMode = false;
   $("stage").classList.remove("workout"); $("rep").hidden = true; $("tiltBig").hidden = false; $("countBig").hidden = true;
   $("swWorkout").checked = false; $("swL").textContent = "운동";
-  $("refL").textContent = "기준✓";
   $("msg").textContent = `기준 렙 저장: 최저 ${ref.min}° · 하강 ${ref.down.toFixed(1)}s · 상승 ${ref.up.toFixed(1)}s. 이제 이 깊이의 85% 이상만 렙으로 셉니다.`;
   beep(880, 160, 3); say(`기준 렙 저장. 최저 ${ref.min}도`, { force: true });
 }
@@ -806,7 +803,6 @@ function endWorkout(reason) {
   say(`세트 종료. ${n}회. 평균 상승 ${avg("up").toFixed(1)}초.` + (fatigue != null && fatigue > 15 ? " 후반에 느려졌습니다." : ""), { force: true });
 }
 $("swWorkout").onchange = () => { if ($("swWorkout").checked) { if (!workout) startWorkout(false); } else if (workout) endWorkout("스위치"); };
-$("refBtn").onclick = () => { if (workout) return; startWorkout(true); };
 $("replayBtn").onclick = e => { e.stopPropagation(); if (lastSession) openReplay(lastSession); };
 $("doneReplay").onclick = e => { e.stopPropagation(); if (lastWarm) openReplay(lastWarm); };
 let lastSession = null;
@@ -1086,7 +1082,6 @@ $("start").onclick = async () => {
     if (!landmarker) { $("start").querySelector(".ct").textContent = "분석 모델 받는 중…"; await loadPose(); }
     $("setup").hidden = true; $("stage").hidden = false;
     const spots = JSON.parse(LS("spots") || "[]"); if (spots.length) $("saved").textContent = `저장 ${spots.length}개`;
-    $("refL").textContent = refOf(exercise) ? "기준✓" : "기준";
     try { await navigator.wakeLock?.request("screen"); } catch {}
     say(EX[exercise].label + " 준비. " + EX[exercise].tip, { force: true });
     if (!looping) { looping = true; loop(); }
