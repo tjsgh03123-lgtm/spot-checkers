@@ -47,7 +47,10 @@
     background: #1d2733; color: var(--fg); flex: 1; min-width: 0; }
   button.primary { background: var(--accent); color: #0b0f14; }
   button:disabled { opacity: .45; }
-  .iconRow { display: flex; justify-content: space-between; gap: 4px; }
+  .iconRow { display: flex; justify-content: space-between; gap: 4px; transition: opacity .3s; }
+  .bottom.hid .iconRow, .bottom.hid .meta { opacity: 0; pointer-events: none; }
+  .workout .bottom .iconRow, .workout .bottom .meta { display: none; }
+  .xclose { flex: 0; padding: 10px 22px; margin-top: 6px; }
   .ib { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px; border-radius: 14px;
     background: var(--panel); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,.1); min-width: 0; }
   .ib .ie { font-size: 22px; line-height: 1; } .ib .il { font-size: 11px; color: var(--muted); font-weight: 600; }
@@ -232,7 +235,7 @@
     <div class="verdict" id="doneVerdict"></div>
     <div class="sub" id="doneRef"></div>
     <button id="doneReplay" style="flex:0;padding:10px 20px" hidden>궤적 보기</button>
-    <div class="sub" id="doneHint">화면을 탭하면 닫힙니다</div>
+    <button class="xclose" id="doneClose">✕ 닫기</button>
   </div>
   <div id="rep" hidden>
     <div class="sub" id="repSub">스쿼트</div>
@@ -251,7 +254,8 @@
     <div class="sub">↓하강 · ■정지 · ↑상승 · 최저 각도</div>
     <div class="rows" id="sumRows"></div>
     <button id="replayBtn" class="primary" style="flex:0;padding:12px 24px">동선 보기</button>
-    <div class="sub">화면을 탭하면 닫힙니다 · "운동 시작" 버튼으로 다음 세트</div>
+    <button class="xclose" id="sumClose">✕ 닫기</button>
+    <div class="sub">다음 세트: 합장 → 동작</div>
   </div>
   <div class="bottom">
     <div id="msg">폰을 자리에 세우고 화면 테두리가 초록이 될 때까지 각도를 조절하세요.</div>
@@ -510,7 +514,7 @@ function analyze() {
   $("hDist").textContent = st === "ok" ? "크기 적당" : bodyFrac < lo ? "작음 → 앞으로" : "큼 → 뒤로 (또는 광각)";
   const allOk = tiltState === "ok" && fullOk && st === "ok";
   $("save").disabled = !allOk;
-  if (allOk && !scoring && spotPassed) $("msg").textContent = "자리 합격. '운동 시작'을 누르면 대기 상태로 들어갑니다.";
+  if (allOk && !scoring && spotPassed) $("msg").textContent = "자리 합격. 합장하면 운동 대기로 들어가고, 동작하면 셉니다.";
   else if (allOk && !scoring) $("msg").textContent = "세 가지 모두 통과. 두 손을 가슴 앞에서 모으면 10초 측정이 시작됩니다.";
   if (!scoring && !guideMuted) announce(allOk, tiltState, fullOk, st, $("hBody").textContent, $("hDist").textContent);
   detectClap();
@@ -534,10 +538,10 @@ function detectClap() {
   if (held >= 1) {
     clapSince = 0; $("hand").hidden = true;
     clapCooldownUntil = now + 3000;
-    runScore();
+    if (spotPassed) { $("done").hidden = true; startWorkout(false); } else runScore();
   }
 }
-$("done").onclick = () => { $("done").hidden = true; };
+$("doneClose").onclick = e => { e.stopPropagation(); $("done").hidden = true; };
 
 // ---------- rep counter with per-rep timing ----------
 // state: "up" | "down" | "mid". Timestamps mark every transition so each rep yields down / hold / up / rest durations.
@@ -786,7 +790,7 @@ async function openReplay(s) {
   $("rpTitle").textContent = s.warm ? "가벼운 무게 궤적" : "본 세트 궤적";
   $("rpPlay").textContent = "일시정지"; $("rpSpeed").textContent = "×1";
   $("replay").hidden = false; $("summary").hidden = true;
-  buildRepButtons();
+  buildRepButtons(); if (s.reps.length) { const r = s.reps[0]; rp.rep = 1; rp.from = r.f0; rp.to = r.f1; rp.i = r.f0; }
   // real footage, when a clip was recorded for this set
   const v = $("rpVideo"); v.hidden = true; v.removeAttribute("src");
   const blob = s.clip || (s.hasClip || s.warm ? await getClip(s.at) : null);
@@ -794,7 +798,7 @@ async function openReplay(s) {
     v.src = URL.createObjectURL(blob); v.muted = true; v.playsInline = true; v.hidden = false;
     rp.offset = Math.max(0, ((s.started || 0) - (s.clipStart || s.started || 0)) / 1000);   // frame t=0 ↔ this video time
     rp.video = v; v.playbackRate = 1;
-    v.onloadedmetadata = () => { v.currentTime = rp.offset; v.play().catch(() => {}); };
+    v.onloadedmetadata = () => { v.currentTime = rp.offset + frT(rp.from ?? 0); v.play().catch(() => {}); };
   }
   $("rpNoVid").hidden = !!blob;
   drawReplay(); requestAnimationFrame(tickReplay);
@@ -802,7 +806,7 @@ async function openReplay(s) {
 function closeReplay() { const v = $("rpVideo"); try { v.pause(); } catch {} rp = null; $("replay").hidden = true; }
 function buildRepButtons() {
   const s = rp.s;
-  $("rpReps").innerHTML = `<button data-r="0" class="on">전체</button>` + s.reps.map(r => `<button data-r="${r.n}">${r.n}</button>`).join("");
+  $("rpReps").innerHTML = s.reps.map(r => `<button data-r="${r.n}" class="${r.n === 1 ? "on" : ""}">${r.n}번</button>`).join("");
   $("rpReps").querySelectorAll("button").forEach(b => b.onclick = e => { e.stopPropagation(); setRep(+b.dataset.r); });
 }
 const frT = i => rp.s.frames[i][0] / 1000;   // seconds since the set started
@@ -960,6 +964,14 @@ if (LS("facing")) $("facing").value = LS("facing");
 if (LS("voice") === "0") { voiceOn = false; $("voiceE").textContent = "🔇"; }
 renderHome();
 // back from the camera screen: finish any running set (kept if it has reps), stop the camera, return to setup
+// controls fade out after 5 s without a touch; tapping the picture brings them back
+let ctlTimer = 0;
+function showControls() {
+  $("stage").querySelector(".bottom").classList.remove("hid"); clearTimeout(ctlTimer);
+  ctlTimer = setTimeout(() => $("stage").querySelector(".bottom").classList.add("hid"), 5000);
+}
+$("stage").addEventListener("pointerdown", e => { if (e.target.closest("button, input")) return; showControls(); });
+$("stage").querySelector(".bottom").addEventListener("pointerdown", showControls);
 $("backStage").onclick = () => {
   if (workout) endWorkout("뒤로가기");
   $("summary").hidden = true; $("done").hidden = true;
@@ -969,7 +981,7 @@ $("backStage").onclick = () => {
   $("start").disabled = false; $("start").querySelector(".ct").textContent = "운동 시작";
 };
 $("histClose").onclick = () => { $("hist").hidden = true; renderHome(); };
-$("summary").onclick = () => { $("summary").hidden = true; };
+$("sumClose").onclick = e => { e.stopPropagation(); $("summary").hidden = true; };
 
 // ---------- actions ----------
 $("flip").onclick = async () => {
@@ -1014,8 +1026,7 @@ function runScore() {
       $("doneVerdict").style.color = "#0b0f14";
       $("done").hidden = false;
       beep(pass ? 880 : 300, 160, 3);
-      say(`측정 완료. 관절 보임 ${a}퍼센트, 기울기 ${b}퍼센트. ${verdict}` + (ref ? ` 기준 궤적 저장, 최저 ${ref.min}도.` : "") + (pass ? " 동작을 시작하면 바로 셉니다." : ""), { force: true });
-      if (pass) setTimeout(() => { $("done").hidden = true; startWorkout(); }, 4000);
+      say(`측정 완료. 관절 보임 ${a}퍼센트, 기울기 ${b}퍼센트. ${verdict}` + (ref ? ` 기준 궤적 저장, 최저 ${ref.min}도.` : "") + (pass ? " 합장하면 운동을 시작합니다." : ""), { force: true });
     }
   }, 200);
 }
@@ -1042,6 +1053,7 @@ $("start").onclick = async () => {
     try { await navigator.wakeLock?.request("screen"); } catch {}
     say(EX[exercise].label + " 준비. " + EX[exercise].tip, { force: true });
     if (!looping) { looping = true; loop(); }
+    showControls();
   } catch (e) {
     $("setupErr").textContent = (e && e.message) || String(e);
     $("start").disabled = false; $("start").querySelector(".ct").textContent = "다시 시도";
