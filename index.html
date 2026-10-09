@@ -70,7 +70,17 @@
   #summary .pct { font-size: 96px; font-weight: 900; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
   #summary .sub { font-size: 15px; color: var(--muted); }
   .bars { display: flex; align-items: flex-end; gap: 4px; height: 70px; width: 100%; max-width: 360px; padding: 0 8px; }
-  .bars .bar { flex: 1; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 4px; }
+  .bars .bar { flex: 1; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 4px; opacity: .7; }
+  .bars .bar.fast { background: var(--ok); opacity: 1; } .bars .bar.slow { background: var(--bad); opacity: 1; }
+  .cmp { display: flex; justify-content: space-between; font-size: 16px; padding: 8px 12px; border-radius: 10px; background: #141c26; }
+  .cmp.fast { border-left: 5px solid var(--ok); } .cmp.slow { border-left: 5px solid var(--bad); }
+  .cmp b { font-variant-numeric: tabular-nums; }
+  .rr { display: grid; grid-template-columns: 32px 56px 1fr 44px; align-items: center; gap: 8px; font-size: 14px;
+    padding: 6px 10px; border-radius: 8px; background: #0f151d; }
+  .rr .no { color: var(--muted); } .rr b { font-variant-numeric: tabular-nums; } .rr .seg, .rr .min { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .rr .min { text-align: right; }
+  .rr.fast { background: rgba(74,222,128,.15); } .rr.fast b { color: var(--ok); }
+  .rr.slow { background: rgba(248,113,113,.15); } .rr.slow b { color: var(--bad); }
   .rows { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
   .kv { display: flex; justify-content: space-between; font-size: 16px; padding: 8px 12px; background: #141c26; border-radius: 10px; }
   .kv b { font-variant-numeric: tabular-nums; }
@@ -145,7 +155,10 @@
     <div class="pct" id="sumReps">0</div>
     <div class="sub">회</div>
     <div class="bars" id="sumBars"></div>
-    <div class="sub">렙별 상승 시간 (막대가 길수록 느림)</div>
+    <div class="sub">렙별 총시간 (초록 = 가장 빠름, 빨강 = 가장 느림)</div>
+    <div class="rows" id="sumCompare"></div>
+    <div class="rows" id="sumList"></div>
+    <div class="sub">↓하강 · ■정지 · ↑상승 · 최저 각도</div>
     <div class="rows" id="sumRows"></div>
     <div class="sub">화면을 탭하면 닫힙니다 · "운동 시작" 버튼으로 다음 세트</div>
   </div>
@@ -483,7 +496,22 @@ function endWorkout(reason) {
     ["부분 렙", String(w.partial)], ["최저 각도 평균", n ? Math.round(avg("min")) + "°" : "-"],
     ["피로 추이", fatigue == null ? "렙 6개 이상 필요" : (fatigue > 0 ? "+" : "") + fatigue + "% (후반 상승 속도)"],
   ].map(([k, v]) => `<div class="kv"><span>${k}</span><b>${v}</b></div>`).join("");
-  $("sumBars").innerHTML = r.map(x => `<div class="bar" style="height:${Math.min(100, x.up / 3 * 100)}%" title="${x.up.toFixed(1)}s"></div>`).join("");
+  // per-rep total = down + hold + up; fastest / slowest compared
+  const tot = x => x.down + x.hold + x.up;
+  let fi = -1, si = -1;
+  r.forEach((x, i) => { if (fi < 0 || tot(x) < tot(r[fi])) fi = i; if (si < 0 || tot(x) > tot(r[si])) si = i; });
+  const maxTot = n ? Math.max(...r.map(tot)) : 1;
+  $("sumBars").innerHTML = r.map((x, i) =>
+    `<div class="bar ${i === fi ? "fast" : i === si ? "slow" : ""}" style="height:${Math.max(6, tot(x) / maxTot * 100)}%"></div>`).join("");
+  $("sumCompare").innerHTML = n >= 2 ? `
+    <div class="cmp fast"><span>가장 빠른 렙</span><b>${fi + 1}번 · ${tot(r[fi]).toFixed(1)}s</b></div>
+    <div class="cmp slow"><span>가장 느린 렙</span><b>${si + 1}번 · ${tot(r[si]).toFixed(1)}s</b></div>
+    <div class="cmp"><span>차이</span><b>${(tot(r[si]) - tot(r[fi])).toFixed(1)}s (+${Math.round((tot(r[si]) / tot(r[fi]) - 1) * 100)}%)</b></div>` : "";
+  $("sumList").innerHTML = r.map((x, i) => `
+    <div class="rr ${i === fi ? "fast" : i === si ? "slow" : ""}">
+      <span class="no">${x.n}</span><b>${tot(x).toFixed(1)}s</b>
+      <span class="seg">↓${x.down.toFixed(1)} · ■${x.hold.toFixed(1)} · ↑${x.up.toFixed(1)}</span><span class="min">${x.min}°</span>
+    </div>`).join("");
   $("summary").hidden = false;
   const sessions = JSON.parse(LS("sessions") || "[]");
   sessions.push({ exercise, at: new Date().toISOString(), reps: r, partial: w.partial }); SS("sessions", JSON.stringify(sessions.slice(-50)));
