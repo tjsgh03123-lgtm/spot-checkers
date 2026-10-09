@@ -98,8 +98,11 @@
   .legend2 { display: flex; gap: 12px; font-size: 12px; flex-wrap: wrap; }
   #hist { position: fixed; inset: 0; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 16px) 16px 32px; overflow: auto;
     display: flex; flex-direction: column; gap: 14px; }
-  .hh { display: flex; justify-content: space-between; align-items: center; } .hh h1 { font-size: 26px; margin: 0; }
-  .hh button { flex: 0; padding: 10px 16px; }
+  .hh { display: flex; gap: 12px; align-items: center; } .hh h1 { font-size: 26px; margin: 0; }
+  .back { position: absolute; left: 16px; top: calc(env(safe-area-inset-top, 0px) + 12px); width: 48px; height: 48px; flex: 0 0 48px;
+    border-radius: 50%; background: var(--panel); color: var(--fg); font-size: 24px; font-weight: 900; padding: 0; backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,.12); }
+  .rpTop { gap: 12px; }
   .trend { display: flex; flex-direction: column; gap: 8px; background: #121a23; border-radius: 14px; padding: 14px; }
   .trend .tt { font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; }
   .trend .tb { display: flex; align-items: flex-end; gap: 4px; height: 56px; }
@@ -160,7 +163,8 @@
   <video id="cam" playsinline muted autoplay></video>
   <canvas id="ov"></canvas>
   <div id="frame"></div>
-  <div class="top">
+  <button class="back" id="backStage" aria-label="뒤로">←</button>
+  <div class="top" style="padding-top:calc(env(safe-area-inset-top, 0px) + 68px)">
     <div class="gauges">
       <div class="g" id="gTilt"><div class="k">기울기</div><div class="v" id="vTilt">--°</div><div class="h" id="hTilt">센서 대기</div></div>
       <div class="g" id="gDist"><div class="k">화면 크기</div><div class="v" id="vDist">--</div><div class="h" id="hDist">사람 없음</div></div>
@@ -211,7 +215,7 @@
 
 <div id="replay" hidden>
     <canvas id="rpCanvas"></canvas>
-    <div class="rpTop"><span id="rpInfo"></span><button id="rpClose">닫기</button></div>
+    <div class="rpTop"><button class="back" id="rpClose" aria-label="뒤로" style="position:static">←</button><span id="rpInfo"></span></div>
     <div class="rpBottom">
       <div class="rpReps" id="rpReps"></div>
       <input id="rpBar" type="range" min="0" max="1000" value="0">
@@ -221,7 +225,7 @@
 </div>
 
 <div id="hist" hidden>
-  <div class="hh"><h1>기록</h1><button id="histClose">닫기</button></div>
+  <div class="hh"><button class="back" id="histClose" aria-label="뒤로" style="position:static">←</button><h1>기록</h1></div>
   <div class="trend" id="trend"></div>
   <div id="histList"></div>
 </div>
@@ -365,9 +369,9 @@ async function loadPose() {
     runningMode: "VIDEO", numPoses: 1 });
 }
 const EDGES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
-let frames = 0, fpsT = performance.now(), lastTs = -1;
+let frames = 0, fpsT = performance.now(), lastTs = -1, looping = false;
 function loop() {
-  if (video.readyState >= 2 && landmarker) {
+  if (!$("stage").hidden && video.srcObject && video.readyState >= 2 && landmarker) {
     const ts = performance.now();
     if (ts !== lastTs) {
       lastTs = ts;
@@ -733,6 +737,15 @@ function renderHistory() {
   list.querySelectorAll(".rpOpen").forEach(b => b.onclick = e => { e.stopPropagation(); openReplay(all[+b.dataset.i]); });
 }
 $("histBtn").onclick = () => { renderHistory(); $("hist").hidden = false; };
+// back from the camera screen: finish any running set (kept if it has reps), stop the camera, return to setup
+$("backStage").onclick = () => {
+  if (workout) endWorkout("뒤로가기");
+  $("summary").hidden = true; $("done").hidden = true;
+  try { video.srcObject?.getTracks().forEach(t => t.stop()); } catch {}
+  video.srcObject = null; lastPose = null; speechSynthesis.cancel();
+  $("stage").hidden = true; $("setup").hidden = false;
+  $("start").disabled = false; $("start").textContent = "시작 (카메라 · 센서 권한 허용)";
+};
 $("histClose").onclick = () => { $("hist").hidden = true; };
 $("summary").onclick = () => { $("summary").hidden = true; };
 
@@ -794,13 +807,12 @@ $("start").onclick = async () => {
   try {
     try { await startCamera(); } catch (e) { throw new Error(explainCameraError(e)); }
     try { await startSensors(); } catch (e) { $("hTilt").textContent = "센서 거부됨"; }
-    $("start").textContent = "분석 모델 받는 중…";
-    await loadPose();
+    if (!landmarker) { $("start").textContent = "분석 모델 받는 중…"; await loadPose(); }
     $("setup").hidden = true; $("stage").hidden = false;
     const spots = JSON.parse(LS("spots") || "[]"); if (spots.length) $("saved").textContent = `저장 ${spots.length}개`;
     try { await navigator.wakeLock?.request("screen"); } catch {}
     say("자리 체커 시작. " + EX[exercise].tip, { force: true });
-    loop();
+    if (!looping) { looping = true; loop(); }
   } catch (e) {
     $("setupErr").textContent = (e && e.message) || String(e);
     $("start").disabled = false; $("start").textContent = "다시 시도";
