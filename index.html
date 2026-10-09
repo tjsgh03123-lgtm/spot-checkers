@@ -205,8 +205,8 @@
   <div class="hh"><button class="back" id="settingsClose" aria-label="뒤로" style="position:static">←</button><h1>설정</h1></div>
   <div class="setRow"><span>카메라</span><div class="seg" id="segFacing"><button data-v="environment" class="on">후면</button><button data-v="user">전면</button></div></div>
   <div class="setRow"><span>음성 안내</span><div class="seg" id="segVoice"><button data-v="1" class="on">켜짐</button><button data-v="0">꺼짐</button></div></div>
-  <div class="setRow"><span>시작 카운트다운</span><div class="seg" id="segCount"><button data-v="3">3초</button><button data-v="5" class="on">5초</button><button data-v="10">10초</button></div></div>
-  <div class="setRow"><span>합장 제스처</span><div class="seg" id="segClap"><button data-v="1">켜짐</button><button data-v="0" class="on">꺼짐</button></div></div>
+  <div class="setRow"><span>시작 카운트다운</span><div class="seg" id="segCount"><button data-v="3">3초</button><button data-v="5">5초</button><button data-v="10" class="on">10초</button></div></div>
+  <div class="setRow"><span>합장으로 세트 종료</span><div class="seg" id="segClap"><button data-v="1">켜짐</button><button data-v="0" class="on">꺼짐</button></div></div>
   <div class="setRow"><span>기울기 초록 범위</span><b>80~95°</b></div>
   <div class="setRow"><span>얕은 렙 기준</span><b>기준 깊이의 85% 미만</b></div>
   <div class="setBlock">
@@ -534,10 +534,10 @@ function analyze() {
 // After a measurement finishes, positioning voice stays off until the next measurement starts.
 let scoring = false, clapSince = 0, clapCooldownUntil = 0, guideMuted = false, spotPassed = false;
 // Hands together in front of the chest (both wrists closer than 1/3 of shoulder width) for 0.5 s starts the 10 s test.
-let countdownSec = Number(LS("countdown")) || 5, clapOn = LS("clap") === "1";
+let countdownSec = Number(LS("countdown")) || 10, clapOn = LS("clap") === "1";
 function detectClap() {
   const now = Date.now();
-  if (!clapOn || scoring || now < clapCooldownUntil || !lastPose) { $("hand").hidden = true; return; }
+  if (scoring || workout || now < clapCooldownUntil || !lastPose) { $("hand").hidden = true; return; }
   const lw = lastPose[15], rw = lastPose[16], ls = lastPose[11], rs = lastPose[12];
   const ok = [lw, rw, ls, rs].every(p => (p.visibility ?? 1) > 0.5);
   const shoulderW = Math.hypot(ls.x - rs.x, ls.y - rs.y);
@@ -551,7 +551,7 @@ function detectClap() {
   if (held >= 1) {
     clapSince = 0; $("hand").hidden = true;
     clapCooldownUntil = now + 3000;
-    if (spotPassed) { $("done").hidden = true; startWorkout(false); } else runScore();
+    runScore();
   }
 }
 $("doneClose").onclick = e => { e.stopPropagation(); $("done").hidden = true; };
@@ -818,7 +818,7 @@ async function openReplay(s) {
   $("rpRef").hidden = !(s.ref && s.ref.frames); $("rpRef").textContent = "기준 겹침 켜짐";
   $("rpTitle").textContent = s.warm ? "가벼운 무게 궤적" : "본 세트 궤적";
   $("rpPlay").textContent = "일시정지"; $("rpSpeed").textContent = "×1";
-  $("replay").hidden = false; $("summary").hidden = true;
+  $("replay").hidden = false; $("summary").hidden = true; pushScreen("replay");
   buildRepButtons(); if (s.reps.length) { const r = s.reps[0]; rp.rep = 1; rp.from = r.f0; rp.to = r.f1; rp.i = r.f0; }
   // real footage, when a clip was recorded for this set
   const v = $("rpVideo"); v.hidden = true; v.removeAttribute("src");
@@ -909,7 +909,7 @@ function drawReplay() {
   if (rp.playing) $("rpBar").value = Math.round((rp.i - from) / Math.max(1, to - from - 1) * 1000);
   $("rpInfo").textContent = (rp.rep ? `${rp.rep}번 렙 · ` : "") + `${t.toFixed(1)}s · ${f[1]}°` + (rp.s.ref ? ` · 기준 ${rp.s.ref.min}°` : "");
 }
-$("rpClose").onclick = closeReplay;
+$("rpClose").onclick = () => goBack();
 $("rpPlay").onclick = () => { rp.playing = !rp.playing; $("rpPlay").textContent = rp.playing ? "일시정지" : "재생"; if (rp.video) rp.playing ? rp.video.play().catch(() => {}) : rp.video.pause(); };
 $("rpRef").onclick = () => { rp.showRef = !rp.showRef; $("rpRef").textContent = rp.showRef ? "기준 겹침 켜짐" : "기준 겹침 꺼짐"; };
 $("rpSpeed").onclick = () => { rp.speed = rp.speed === 1 ? 0.5 : rp.speed === 0.5 ? 0.25 : 1; $("rpSpeed").textContent = "×" + rp.speed; if (rp.video) rp.video.playbackRate = rp.speed; };
@@ -960,7 +960,7 @@ function renderHistory() {
   list.querySelectorAll(".ses").forEach(el => el.onclick = () => el.classList.toggle("open"));
   list.querySelectorAll(".rpOpen").forEach(b => b.onclick = e => { e.stopPropagation(); openReplay(all[+b.dataset.i]); });
 }
-$("histBtn").onclick = () => { renderHistory(); $("hist").hidden = false; };
+$("histBtn").onclick = () => { renderHistory(); $("hist").hidden = false; pushScreen("hist"); };
 // home: exercise chips + settings panel
 function renderHome() {
   exercise = $("exercise").value;
@@ -984,8 +984,8 @@ $("segFacing").querySelectorAll("button").forEach(b => b.onclick = () => { $("fa
 $("segVoice").querySelectorAll("button").forEach(b => b.onclick = () => { voiceOn = b.dataset.v === "1"; SS("voice", voiceOn ? "1" : "0"); $("voiceE").textContent = voiceOn ? "🔊" : "🔇"; renderSettings(); });
 $("segCount").querySelectorAll("button").forEach(b => b.onclick = () => { countdownSec = +b.dataset.v; SS("countdown", String(countdownSec)); renderSettings(); });
 $("segClap").querySelectorAll("button").forEach(b => b.onclick = () => { clapOn = b.dataset.v === "1"; SS("clap", clapOn ? "1" : "0"); renderSettings(); });
-$("settingsBtn").onclick = () => { renderSettings(); $("settings").hidden = false; };
-$("settingsClose").onclick = () => { $("settings").hidden = true; renderHome(); };
+$("settingsBtn").onclick = () => { renderSettings(); $("settings").hidden = false; pushScreen("settings"); };
+$("settingsClose").onclick = () => goBack();
 let wipeArmed = false;
 $("wipeBtn").onclick = () => {
   if (!wipeArmed) { wipeArmed = true; $("wipeBtn").textContent = "정말 지우기 (한 번 더)"; $("wipeMsg").textContent = "세트 기록과 자리 저장이 모두 지워집니다. 기준 렙은 남습니다."; return; }
@@ -1005,7 +1005,20 @@ function showControls() {
 }
 $("stage").addEventListener("pointerdown", e => { if (e.target.closest("button, input")) return; showControls(); });
 $("stage").querySelector(".bottom").addEventListener("pointerdown", showControls);
-$("backStage").onclick = () => {
+// Screen stack mirrored into browser history so the phone's back button closes the top screen instead of leaving the app.
+let ignorePop = false;
+function pushScreen(name) { try { history.pushState({ s: name }, ""); } catch {} }
+function closeTop() {
+  if (!$("replay").hidden) { closeReplay(); return true; }
+  if (!$("settings").hidden) { $("settings").hidden = true; renderHome(); return true; }
+  if (!$("hist").hidden) { $("hist").hidden = true; renderHome(); return true; }
+  if (!$("stage").hidden) { leaveStage(); return true; }
+  return false;
+}
+function goBack() { closeTop(); if (history.state && history.state.s) { ignorePop = true; history.back(); } }
+window.addEventListener("popstate", () => { if (ignorePop) { ignorePop = false; return; } closeTop(); });
+$("backStage").onclick = () => goBack();
+function leaveStage() {
   if (workout) endWorkout("뒤로가기");
   $("summary").hidden = true; $("done").hidden = true;
   try { video.srcObject?.getTracks().forEach(t => t.stop()); } catch {}
@@ -1013,7 +1026,7 @@ $("backStage").onclick = () => {
   $("stage").hidden = true; $("setup").hidden = false; renderHome();
   $("start").disabled = false; $("start").querySelector(".ct").textContent = "운동 시작";
 };
-$("histClose").onclick = () => { $("hist").hidden = true; renderHome(); };
+$("histClose").onclick = () => goBack();
 $("sumClose").onclick = e => { e.stopPropagation(); $("summary").hidden = true; };
 
 // ---------- actions ----------
@@ -1080,7 +1093,7 @@ $("start").onclick = async () => {
     try { await startCamera(); } catch (e) { throw new Error(explainCameraError(e)); }
     try { await startSensors(); } catch (e) { $("hTilt").textContent = "센서 거부됨"; }
     if (!landmarker) { $("start").querySelector(".ct").textContent = "분석 모델 받는 중…"; await loadPose(); }
-    $("setup").hidden = true; $("stage").hidden = false;
+    $("setup").hidden = true; $("stage").hidden = false; pushScreen("stage");
     const spots = JSON.parse(LS("spots") || "[]"); if (spots.length) $("saved").textContent = `저장 ${spots.length}개`;
     try { await navigator.wakeLock?.request("screen"); } catch {}
     say(EX[exercise].label + " 준비. " + EX[exercise].tip, { force: true });
