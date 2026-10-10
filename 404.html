@@ -120,6 +120,9 @@
   .rpReps button.on { background: var(--accent); color: #0b0f14; }
   #rpBar { width: 100%; accent-color: var(--accent); }
   .legend2 { display: flex; gap: 12px; font-size: 12px; flex-wrap: wrap; }
+  #pick { position: fixed; inset: 0; z-index: 20; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 16px) 16px 32px; overflow: auto;
+    display: flex; flex-direction: column; gap: 10px; }
+  .exCard.on { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
   #analyze { position: fixed; inset: 0; z-index: 20; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 16px) 16px 32px; overflow: auto;
     display: flex; flex-direction: column; gap: 14px; }
   .fileBtn { display: flex; justify-content: center; padding: 18px; border-radius: 14px; background: var(--accent); color: #0b0f14; font-weight: 800; font-size: 18px; }
@@ -186,22 +189,15 @@
     <h1>렙 템포</h1>
     <p>카메라로 횟수 · 가동범위 · 렙당 시간을 잽니다. 영상은 폰 밖으로 나가지 않습니다.</p>
   </div>
-  <div class="chips" id="exChips">
-    <button data-ex="squat" class="on">스쿼트</button>
-    <button data-ex="pushup">푸시업</button>
-    <button data-ex="curl">덤벨 컬</button>
-    <button data-ex="pulldown">랫풀다운</button>
-  </div>
-  <p class="exTip" id="exTip"></p>
   <select id="exercise" hidden><option value="squat">스쿼트</option><option value="pushup">푸시업</option><option value="curl">덤벨 컬</option><option value="pulldown">랫풀다운</option></select>
   <select id="facing" hidden><option value="environment">후면</option><option value="user">전면</option></select>
-  <button class="card primary" id="start">
+  <button class="card primary" id="pickBtn">
     <span class="ct">운동 시작</span>
-    <span class="cs">자리 확인 → 10초 워밍업 → 세트 측정</span>
+    <span class="cs">운동 선택 → 자리 확인 → 10초 워밍업 → 세트</span>
   </button>
   <button class="card" id="anBtn">
     <span class="ct">영상 분석</span>
-    <span class="cs">찍어둔 운동 영상 → 횟수 · 렙당 시간 · 궤적</span>
+    <span class="cs">찍어둔 영상 → 관절·방향 자동 감지 → 횟수 · 시간 · 궤적</span>
   </button>
   <button class="card" id="histBtn">
     <span class="ct">기록</span>
@@ -211,8 +207,6 @@
     <span class="ct">설정</span>
     <span class="cs" id="setSub">카메라 · 음성 · 기준 궤적</span>
   </button>
-  <p id="setupErr" style="color:var(--bad)"></p>
-  <p id="ctx" style="font-size:12px;margin-top:auto"></p>
 </div>
 
 <div id="settings" hidden>
@@ -310,10 +304,21 @@
     </div>
 </div>
 
+<div id="pick" hidden>
+  <div class="hh"><button class="back" id="pickClose" aria-label="뒤로" style="position:static">←</button><h1>운동 선택</h1></div>
+  <button class="card exCard" data-ex="squat"><span class="ct">스쿼트</span><span class="cs">엉덩이·무릎·발목 · 측면 45°</span></button>
+  <button class="card exCard" data-ex="pushup"><span class="ct">푸시업</span><span class="cs">어깨·팔꿈치·손목 · 측면, 폰 바닥 가까이</span></button>
+  <button class="card exCard" data-ex="curl"><span class="ct">덤벨 컬</span><span class="cs">어깨·팔꿈치·손목 · 정면</span></button>
+  <button class="card exCard" data-ex="pulldown"><span class="ct">랫풀다운</span><span class="cs">양팔 어깨·팔꿈치·손목 · 정면 · 바 균형</span></button>
+  <p class="sub" id="pickTip" style="color:var(--muted);margin:0"></p>
+  <button class="card primary" id="start" style="margin-top:auto"><span class="ct">카메라 켜기</span><span class="cs" id="startSub">선택한 운동으로 시작</span></button>
+  <p id="setupErr" style="color:var(--bad);margin:0"></p>
+  <p id="ctx" style="font-size:12px;margin:0"></p>
+</div>
+
 <div id="analyze" hidden>
   <div class="hh"><button class="back" id="anClose" aria-label="뒤로" style="position:static">←</button><h1>영상 분석</h1></div>
-  <p class="sub" style="margin:0;color:var(--muted);line-height:1.5">운동 영상을 고르면 같은 방식으로 관절을 추적해 횟수, 렙당 시간, 궤적을 뽑습니다. 영상은 폰 밖으로 나가지 않습니다. "자동"이면 움직이는 관절·하중 방향·촬영 각도를 영상에서 찾아내고, 측면이면 경로 수직성, 정면이면 바 균형, 위에서면 팔꿈치 위치를 잽니다. 홈에서 고른 운동(<b id="anEx"></b>)으로 분석하려면 "홈 선택".</p>
-  <div class="setRow"><span>운동 감지</span><div class="seg"><button id="anAutoBtn" class="on">자동</button><button id="anManBtn">홈 선택 (<span id="anEx2"></span>)</button></div></div>
+  <p class="sub" style="margin:0;color:var(--muted);line-height:1.5">운동 영상을 고르면 같은 방식으로 관절을 추적해 횟수, 렙당 시간, 궤적을 뽑습니다. 영상은 폰 밖으로 나가지 않습니다. 운동 종류를 고를 필요 없이 움직이는 관절·하중 방향·촬영 각도를 영상에서 찾아냅니다. 측면이면 경로 수직성, 정면이면 바 균형, 위에서면 팔꿈치 위치를 잽니다.</p>
   <input type="checkbox" id="anAuto" checked hidden>
   <label class="fileBtn"><input type="file" id="anFile" accept="video/*,image/*" hidden><span>갤러리에서 영상 선택</span></label>
   <p class="sub" style="margin:-6px 0 0;color:var(--muted);font-size:13px">선택 창에서 "갤러리"를 고르세요. 갤러리가 없으면 "내 파일 → 동영상"에서 골라도 됩니다.</p>
@@ -1067,9 +1072,7 @@ function finishAnalysis(file) {
   $("anRes").textContent = `${w.cfg.label} ${w.reps.length}회` + (w.partial ? ` · 부분 ${w.partial}` : "") + ` · 영상 ${v.duration.toFixed(0)}초`
     + (w.autoRes ? ` · 하중: ${w.cfg.names[w.cfg.load]} · 고정: ${w.cfg.names[w.cfg.anchor]} · 각도 ${w.autoRes.lo}~${w.autoRes.hi}° · 운동 구간 ${w.autoRes.from.toFixed(0)}~${w.autoRes.to.toFixed(0)}초` : "");
 }
-$("anAutoBtn").onclick = () => { $("anAuto").checked = true; $("anAutoBtn").classList.add("on"); $("anManBtn").classList.remove("on"); };
-$("anManBtn").onclick = () => { $("anAuto").checked = false; $("anManBtn").classList.add("on"); $("anAutoBtn").classList.remove("on"); };
-$("anBtn").onclick = () => { $("anEx").textContent = EX[exercise].label; $("anEx2").textContent = EX[exercise].label; $("anProg").hidden = true; $("anDone").hidden = true; $("analyze").hidden = false; pushScreen("analyze"); };
+$("anBtn").onclick = () => { $("anProg").hidden = true; $("anDone").hidden = true; $("analyze").hidden = false; pushScreen("analyze"); };
 $("anClose").onclick = () => goBack();
 $("anFile").onchange = () => {
   const f = $("anFile").files[0]; $("anFile").value = ""; $("anErr").textContent = "";
@@ -1219,13 +1222,19 @@ $("histBtn").onclick = () => { renderHistory(); $("hist").hidden = false; pushSc
 // home: exercise chips + settings panel
 function renderHome() {
   exercise = $("exercise").value;
-  $("exChips").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.ex === exercise));
-  $("exTip").textContent = EX[exercise].tip + (refOf(exercise) ? ` · 기준 ${refOf(exercise).min}°` : " · 기준 렙 없음");
   const n = JSON.parse(LS("sessions") || "[]").length;
   $("histSub").textContent = n ? `저장된 세트 ${n}개` : "아직 기록 없음";
   $("setSub").textContent = ($("facing").value === "user" ? "전면" : "후면") + " 카메라 · 음성 " + (voiceOn ? "켜짐" : "꺼짐");
 }
-$("exChips").querySelectorAll("button").forEach(b => b.onclick = () => { $("exercise").value = b.dataset.ex; SS("exercise", b.dataset.ex); renderHome(); });
+function renderPick() {
+  exercise = $("exercise").value;
+  $("pick").querySelectorAll(".exCard").forEach(b => b.classList.toggle("on", b.dataset.ex === exercise));
+  $("pickTip").textContent = EX[exercise].label + " · " + EX[exercise].tip + (refOf(exercise) ? ` · 기준 궤적 있음 (최저 ${refOf(exercise).min}°)` : " · 기준 궤적 없음 (10초 측정 때 저장)");
+  $("startSub").textContent = EX[exercise].label + "로 시작";
+}
+$("pick").querySelectorAll(".exCard").forEach(b => b.onclick = () => { $("exercise").value = b.dataset.ex; SS("exercise", b.dataset.ex); renderPick(); });
+$("pickBtn").onclick = () => { renderPick(); $("setupErr").textContent = ""; $("pick").hidden = false; pushScreen("pick"); };
+$("pickClose").onclick = () => goBack();
 function renderSettings() {
   $("segCount").querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.v === countdownSec));
   $("segClap").querySelectorAll("button").forEach(b => b.classList.toggle("on", (b.dataset.v === "1") === clapOn));
@@ -1267,6 +1276,7 @@ function closeTop() {
   if (!$("replay").hidden) { closeReplay(); return true; }
   if (!$("settings").hidden) { $("settings").hidden = true; renderHome(); return true; }
   if (!$("hist").hidden) { $("hist").hidden = true; renderHome(); return true; }
+  if (!$("pick").hidden) { $("pick").hidden = true; renderHome(); return true; }
   if (!$("analyze").hidden) { if (an) { an.stop = true; try { an.v.pause(); } catch {} an = null; } $("analyze").hidden = true; renderHome(); return true; }
   if (!$("stage").hidden) { leaveStage(); return true; }
   return false;
@@ -1280,7 +1290,7 @@ function leaveStage() {
   try { video.srcObject?.getTracks().forEach(t => t.stop()); } catch {}
   video.srcObject = null; lastPose = null; sm = null; lockedSide = null; speechSynthesis.cancel();
   $("stage").hidden = true; $("setup").hidden = false; renderHome();
-  $("start").disabled = false; $("start").querySelector(".ct").textContent = "운동 시작";
+  $("start").disabled = false; $("start").querySelector(".ct").textContent = "카메라 켜기";
 };
 $("histClose").onclick = () => goBack();
 $("sumClose").onclick = e => { e.stopPropagation(); $("summary").hidden = true; };
@@ -1349,7 +1359,7 @@ $("start").onclick = async () => {
     try { await startCamera(); } catch (e) { throw new Error(explainCameraError(e)); }
     try { await startSensors(); } catch (e) { $("hTilt").textContent = "센서 거부됨"; }
     if (!landmarker) { $("start").querySelector(".ct").textContent = "분석 모델 받는 중…"; await loadPose(); }
-    $("setup").hidden = true; $("stage").hidden = false; pushScreen("stage");
+    $("pick").hidden = true; $("setup").hidden = true; $("stage").hidden = false; try { history.replaceState({ s: "stage" }, ""); } catch {}   // picker entry is replaced, so back from the camera goes home
     const spots = JSON.parse(LS("spots") || "[]"); if (spots.length) $("saved").textContent = `저장 ${spots.length}개`;
     try { await navigator.wakeLock?.request("screen"); } catch {}
     say(EX[exercise].label + " 준비. " + EX[exercise].tip, { force: true });
