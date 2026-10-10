@@ -228,6 +228,7 @@
   <div class="setRow"><span>카메라</span><div class="seg" id="segFacing"><button data-v="environment" class="on">후면</button><button data-v="user">전면</button></div></div>
   <div class="setRow"><span>음성 안내</span><div class="seg" id="segVoice"><button data-v="1" class="on">켜짐</button><button data-v="0">꺼짐</button></div></div>
   <div class="setRow"><span>시작 카운트다운</span><div class="seg" id="segCount"><button data-v="3">3초</button><button data-v="5">5초</button><button data-v="10" class="on">10초</button></div></div>
+  <div class="setRow"><span>자세 경고 음성 (어깨·등·좌우 쏠림)</span><div class="seg" id="segWarn"><button data-v="1" class="on">켜짐</button><button data-v="0">꺼짐</button></div></div>
   <div class="setRow"><span>합장으로 세트 종료</span><div class="seg" id="segClap"><button data-v="1">켜짐</button><button data-v="0" class="on">꺼짐</button></div></div>
   <div class="setRow"><span>기울기 초록 범위</span><b>80~95°</b></div>
   <div class="setRow"><span>얕은 렙 기준</span><b>기준 깊이의 85% 미만</b></div>
@@ -584,7 +585,7 @@ globalThis.sayVoice = (t, o) => say(t, o); globalThis.beepTone = function (freq,
 function say(text, { force = false, every = 4000, low = false } = {}) {
   if (!voiceOn || !("speechSynthesis" in window)) return;
   const now = Date.now();
-  if (low && (speechSynthesis.speaking || now - lastSpokeAt < 1500)) return;   // never talk over a rep count
+  if (low && (!warnOn || speechSynthesis.speaking || now - lastSpokeAt < 1500)) return;   // warnings are optional and never talk over a rep count
   if (!force && text === lastSpoken && now - lastSpokeAt < every) return;
   if (!force && text !== lastSpoken && now - lastSpokeAt < 1200) return;   // don't talk over yourself
   speechSynthesis.cancel();
@@ -726,7 +727,7 @@ function analyze() {
 // After a measurement finishes, positioning voice stays off until the next measurement starts.
 let scoring = false, clapSince = 0, clapCooldownUntil = 0, guideMuted = false, spotPassed = false;
 // Hands together in front of the chest (both wrists closer than 1/3 of shoulder width) for 0.5 s starts the 10 s test.
-let countdownSec = Number(LS("countdown")) || 10, clapOn = LS("clap") === "1";
+let countdownSec = Number(LS("countdown")) || 10, clapOn = LS("clap") === "1", warnOn = LS("warn") !== "0";   // warnOn: posture warnings by voice (rep counts are never affected)
 function detectClap() {
   $("hand").hidden = true; return;   // the 10 s test is gone; a clap only ends a set (clapToEnd) when enabled in settings
   const now = Date.now();
@@ -1701,6 +1702,7 @@ $("pickClose").onclick = () => goBack();
 function renderSettings() {
   $("segCount").querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.v === countdownSec));
   $("segClap").querySelectorAll("button").forEach(b => b.classList.toggle("on", (b.dataset.v === "1") === clapOn));
+  $("segWarn").querySelectorAll("button").forEach(b => b.classList.toggle("on", (b.dataset.v === "1") === warnOn));
   $("segFacing").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === $("facing").value));
   $("segVoice").querySelectorAll("button").forEach(b => b.classList.toggle("on", (b.dataset.v === "1") === voiceOn));
   $("refList").innerHTML = Object.keys(EX).filter(k => k !== "auto").map(k => { const r = refOf(k);
@@ -1711,6 +1713,7 @@ $("segFacing").querySelectorAll("button").forEach(b => b.onclick = () => { $("fa
 $("segVoice").querySelectorAll("button").forEach(b => b.onclick = () => { voiceOn = b.dataset.v === "1"; SS("voice", voiceOn ? "1" : "0"); $("voiceE").textContent = voiceOn ? "🔊" : "🔇"; renderSettings(); });
 $("segCount").querySelectorAll("button").forEach(b => b.onclick = () => { countdownSec = +b.dataset.v; SS("countdown", String(countdownSec)); renderSettings(); });
 $("segClap").querySelectorAll("button").forEach(b => b.onclick = () => { clapOn = b.dataset.v === "1"; SS("clap", clapOn ? "1" : "0"); renderSettings(); });
+$("segWarn").querySelectorAll("button").forEach(b => b.onclick = () => { warnOn = b.dataset.v === "1"; SS("warn", warnOn ? "1" : "0"); renderSettings(); });
 $("settingsBtn").onclick = () => { renderSettings(); $("settings").hidden = false; pushScreen("settings"); };
 $("settingsClose").onclick = () => goBack();
 let wipeArmed = false;
