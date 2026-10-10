@@ -120,6 +120,11 @@
   .rpReps button.on { background: var(--accent); color: #0b0f14; }
   #rpBar { width: 100%; accent-color: var(--accent); }
   .legend2 { display: flex; gap: 12px; font-size: 12px; flex-wrap: wrap; }
+  #analyze { position: fixed; inset: 0; z-index: 20; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 16px) 16px 32px; overflow: auto;
+    display: flex; flex-direction: column; gap: 14px; }
+  .fileBtn { display: flex; justify-content: center; padding: 18px; border-radius: 14px; background: var(--accent); color: #0b0f14; font-weight: 800; font-size: 18px; }
+  .pb { height: 10px; border-radius: 5px; background: #2a3642; overflow: hidden; } .pbIn { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #anVideo { width: 1px; height: 1px; opacity: 0; position: absolute; pointer-events: none; }
   #hist { position: fixed; inset: 0; z-index: 20; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 16px) 16px 32px; overflow: auto;
     display: flex; flex-direction: column; gap: 14px; }
   .hh { display: flex; gap: 12px; align-items: center; } .hh h1 { font-size: 26px; margin: 0; }
@@ -193,6 +198,10 @@
   <button class="card primary" id="start">
     <span class="ct">운동 시작</span>
     <span class="cs">자리 확인 → 10초 워밍업 → 세트 측정</span>
+  </button>
+  <button class="card" id="anBtn">
+    <span class="ct">영상 분석</span>
+    <span class="cs">찍어둔 운동 영상 → 횟수 · 렙당 시간 · 궤적</span>
   </button>
   <button class="card" id="histBtn">
     <span class="ct">기록</span>
@@ -299,6 +308,22 @@
       <div class="row"><button id="rpPlay">일시정지</button><button id="rpSpeed">×1</button><button id="rpRef">기준 겹침 켜짐</button></div>
       <div class="legend2"><span style="color:#c5f03e">● 엉덩이/손목</span><span style="color:#4ade80">● 무릎/팔꿈치</span><span style="color:#60a5fa">╌ 가벼운 무게 기준 궤적</span><span style="color:#f87171">◎ 고정점 (무게와 가장 먼 관절)</span></div>
     </div>
+</div>
+
+<div id="analyze" hidden>
+  <div class="hh"><button class="back" id="anClose" aria-label="뒤로" style="position:static">←</button><h1>영상 분석</h1></div>
+  <p class="sub" style="margin:0;color:var(--muted);line-height:1.5">운동 영상을 고르면 같은 방식으로 관절을 추적해 횟수, 렙당 시간, 궤적을 뽑습니다. 영상은 폰 밖으로 나가지 않습니다. 운동 종류는 홈에서 고른 것(<b id="anEx"></b>)을 씁니다.</p>
+  <label class="fileBtn"><input type="file" id="anFile" accept="video/*" hidden><span>영상 선택</span></label>
+  <div class="setBlock" id="anProg" hidden>
+    <div class="pb"><div class="pbIn" id="anBar"></div></div>
+    <div class="sub" id="anStat">준비 중…</div>
+    <button id="anCancel">취소</button>
+  </div>
+  <div class="setBlock" id="anDone" hidden>
+    <b id="anRes"></b>
+    <div class="row"><button class="primary" id="anSummary">요약 보기</button><button id="anReplay">동선 보기</button></div>
+  </div>
+  <video id="anVideo" playsinline muted hidden></video>
 </div>
 
 <div id="hist" hidden>
@@ -410,7 +435,8 @@ function camLabel(label, i) {
 
 // ---------- voice + sounds (rear camera: you can't see the screen) ----------
 let audioCtx = null, voiceOn = true, lastSpoken = "", lastSpokeAt = 0, lastTone = "";
-function beep(freq, ms, count = 1) {
+function beep(freq, ms, count = 1) { return beepTone(freq, ms, count); }
+globalThis.sayVoice = (t, o) => say(t, o); globalThis.beepTone = function (freq, ms, count = 1) {
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
     for (let k = 0; k < count; k++) {
@@ -443,9 +469,10 @@ function announce(allOk, tiltSt, bodyOk, sizeSt, hintBody, hintSize) {
 }
 async function loadPose() {
   const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
-  landmarker = await PoseLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task", delegate: "GPU" },
+  const opts = d => ({ baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task", delegate: d },
     runningMode: "VIDEO", numPoses: 1 });
+  try { landmarker = await PoseLandmarker.createFromOptions(vision, opts("GPU")); }
+  catch { landmarker = await PoseLandmarker.createFromOptions(vision, opts("CPU")); }   // some phones/browsers have no WebGL for the GPU delegate
 }
 let liveSide = 0;   // which side (0 = left ids, 1 = right ids) the analysis is using right now
 let lockedSide = null, sideVotes = [0, 0], sideLostSince = 0;   // side chosen during the spot test, kept for the whole set
@@ -626,7 +653,8 @@ function clapToEnd(now) {
 }
 function stepWorkout(wArg) {
   const w = wArg || workout; if (!w || !lastPose) return;
-  const cfg = w.cfg, now = Date.now();
+  const cfg = w.cfg, now = w.clock ? w.clock() : Date.now();
+  const say = w.silent ? () => {} : globalThis.sayVoice, beep = w.silent ? () => {} : globalThis.beepTone;
   // better-seen side
   const visOf = sd => Math.min(...cfg.joints.map(p => lastPose[p[sd]].visibility ?? 1));
   let side = lockedSide != null ? lockedSide : (visOf(1) > visOf(0) ? 1 : 0);
@@ -965,6 +993,65 @@ $("rpBar").oninput = () => {
   if (rp.video) { rp.video.pause(); rp.video.currentTime = rp.offset + frT(rp.i); }
 };
 
+// ---------- offline analysis of a recorded clip ----------
+let an = null;
+async function analyzeFile(file) {
+  if (!file) return;
+  $("anProg").hidden = false; $("anDone").hidden = true; $("anBar").style.width = "0%"; $("anStat").textContent = "분석 모델 준비 중…";
+  try { if (!landmarker) await loadPose(); } catch (e) { $("anStat").textContent = "모델을 받지 못했습니다: " + e.message; return; }
+  const v = $("anVideo"); v.src = URL.createObjectURL(file); v.muted = true; v.playsInline = true;
+  await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error("영상을 열 수 없습니다")); }).catch(e => { $("anStat").textContent = e.message; });
+  if (!v.duration) return;
+  const cfg = EX[exercise];
+  const w = { cfg, reps: [], partial: 0, state: "up", pending: null, pendingN: 0, angle: null, tLeaveUp: 0, tEnterDown: 0, tLeaveDown: 0,
+              tLastRep: 0, minAngle: 180, maxAngle: 0, started: 0, armed: false, ready: true, frames: [], repStartFrame: 0, ref: refOf(exercise),
+              clock: () => Math.round(v.currentTime * 1000), silent: true };
+  an = { w, v, stop: false };
+  sm = null; lockedSide = null;
+  v.playbackRate = Math.min(4, 2);   // analyse faster than real time where the phone can decode it
+  let lastT = -1;
+  const step = () => {
+    if (!an || an.stop) return;
+    const t = v.currentTime;
+    if (t !== lastT) {
+      lastT = t;
+      try {
+        const res = landmarker.detectForVideo(v, Math.round(t * 1000));
+        lastPose = smoothPose(res.landmarks && res.landmarks[0] ? res.landmarks[0] : null, Math.round(t * 1000));
+        stepWorkout(w);
+      } catch {}
+      $("anBar").style.width = Math.round(t / v.duration * 100) + "%";
+      $("anStat").textContent = `분석 중 ${Math.round(t / v.duration * 100)}% · ${w.reps.length}회`;
+    }
+    if (v.ended) { finishAnalysis(file); return; }
+    if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(step); else requestAnimationFrame(step);
+  };
+  v.onended = () => { if (an && !an.stop) finishAnalysis(file); };
+  await v.play().catch(() => {});
+  if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(step); else requestAnimationFrame(step);
+}
+function finishAnalysis(file) {
+  if (!an) return;
+  const { w, v } = an; an = null; lastPose = null;
+  try { v.pause(); } catch {}
+  if (!w.reps.length && !w.partial) { $("anStat").textContent = "렙을 찾지 못했습니다. 운동 종류와 촬영 각도를 확인하세요."; $("anBar").style.width = "100%"; return; }
+  workout = w; endWorkout("영상 분석");   // same summary / storage path as a live set
+  if (lastSession) {
+    lastSession.clip = file; lastSession.clipStart = 0; lastSession.started = 0; lastSession.analyzed = true;
+    const sessions = JSON.parse(LS("sessions") || "[]"); const st = sessions[sessions.length - 1];
+    if (st && st.at === lastSession.at) { st.hasClip = true; st.clipStart = 0; st.started = 0; st.analyzed = true; try { SS("sessions", JSON.stringify(sessions)); } catch {} }
+    putClip(lastSession.at, file);
+  }
+  $("anProg").hidden = true; $("anDone").hidden = false;
+  $("anRes").textContent = `${w.cfg.label} ${w.reps.length}회` + (w.partial ? ` · 부분 ${w.partial}` : "") + ` · 영상 ${v.duration.toFixed(0)}초`;
+}
+$("anBtn").onclick = () => { $("anEx").textContent = EX[exercise].label; $("anProg").hidden = true; $("anDone").hidden = true; $("analyze").hidden = false; pushScreen("analyze"); };
+$("anClose").onclick = () => goBack();
+$("anFile").onchange = () => { const f = $("anFile").files[0]; $("anFile").value = ""; analyzeFile(f); };
+$("anCancel").onclick = () => { if (an) { an.stop = true; try { an.v.pause(); } catch {} an = null; } $("anProg").hidden = true; };
+$("anSummary").onclick = () => { if (lastSession) $("summary").hidden = false; };
+$("anReplay").onclick = () => { if (lastSession) openReplay(lastSession); };
+
 // ---------- history ----------
 const repTot = x => x.down + x.hold + x.up;
 const sesAvg = s => s.reps.length ? s.reps.reduce((a, x) => a + repTot(x), 0) / s.reps.length : 0;
@@ -995,7 +1082,7 @@ function renderHistory() {
       delta = `<div class="delta ${cls}">직전 세트 대비: 횟수 ${dr >= 0 ? "+" : ""}${dr} · 평균 렙 ${dt >= 0 ? "+" : ""}${dt.toFixed(1)}s</div>`;
     }
     html += `<div class="ses" data-i="${all.indexOf(s)}">
-      <div class="h1"><b>${EX[s.exercise].label} ${n}회</b><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
+      <div class="h1"><b>${EX[s.exercise].label} ${n}회${s.analyzed ? " · 영상 분석" : ""}</b><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
       <div class="h2"><span>평균 <b>${avg.toFixed(1)}s</b></span><span>최빠 <b>${tots[fi].toFixed(1)}s</b></span><span>최느 <b>${tots[si].toFixed(1)}s</b></span>${s.partial ? `<span>부분 <b>${s.partial}</b></span>` : ""}</div>
       ${delta}
       ${s.frames && s.frames.length ? `<button class="rpOpen" data-i="${all.indexOf(s)}" style="flex:0;padding:8px 14px;font-size:14px">${s.hasClip ? "영상 · 동선 보기" : "동선 보기"}</button>` : ""}
@@ -1058,6 +1145,7 @@ function closeTop() {
   if (!$("replay").hidden) { closeReplay(); return true; }
   if (!$("settings").hidden) { $("settings").hidden = true; renderHome(); return true; }
   if (!$("hist").hidden) { $("hist").hidden = true; renderHome(); return true; }
+  if (!$("analyze").hidden) { if (an) { an.stop = true; try { an.v.pause(); } catch {} an = null; } $("analyze").hidden = true; renderHome(); return true; }
   if (!$("stage").hidden) { leaveStage(); return true; }
   return false;
 }
