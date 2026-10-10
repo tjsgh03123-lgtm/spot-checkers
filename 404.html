@@ -59,6 +59,10 @@
   .sw .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #f2f4f6; transition: left .2s; }
   .sw input:checked + .track { background: var(--ok); } .sw input:checked + .track::after { left: 27px; }
   .sw input:disabled + .track { opacity: .4; }
+  #cornerCount { position: absolute; left: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 150px); z-index: 12; display: flex; align-items: baseline; gap: 4px;
+    background: rgba(12,18,26,.72); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 6px 14px; pointer-events: none; }
+  #cornerCount .n { font-size: 44px; font-weight: 900; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
+  #cornerCount .u { font-size: 16px; font-weight: 700; color: var(--muted); }
   #countBig { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); font-size: 200px; font-weight: 900; line-height: 1;
     color: var(--accent); text-shadow: 0 4px 24px rgba(0,0,0,.8); pointer-events: none; z-index: 5; }
   .ib { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px; border-radius: 14px;
@@ -271,6 +275,7 @@
   </div>
   <label class="sw" id="swWrap"><span class="swL" id="swL">운동</span><input type="checkbox" id="swWorkout"><span class="track"></span></label>
   <div id="countBig" hidden></div>
+  <div id="cornerCount" hidden><span class="n">0</span><span class="u">회</span></div>
   <div class="bottom">
     <div id="msg">폰을 자리에 세우고 화면 테두리가 초록이 될 때까지 각도를 조절하세요.</div>
     <div class="iconRow">
@@ -315,7 +320,7 @@ const EX = {
   pushup: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.25, 0.70], axis: "max", tip: "측면, 폰 바닥 가까이", up: 150, down: 95, label: "푸시업", anchor: 2 },
   curl:   { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y",   tip: "정면", up: 150, down: 60, label: "덤벨 컬", anchor: 0 },
   // both arms are loaded: rep angle = mean of both elbows, plus bar level / shoulder level / arm symmetry
-  pulldown: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y", tip: "정면, 양팔 다 보이게", up: 150, down: 70, label: "랫풀다운", anchor: 0, both: true },
+  pulldown: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y", tip: "정면, 양팔 다 보이게", up: 150, down: 95, label: "랫풀다운", anchor: 0, both: true },
 };
 const LS = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const SS = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
@@ -417,9 +422,10 @@ function beep(freq, ms, count = 1) {
     }
   } catch {}
 }
-function say(text, { force = false, every = 4000 } = {}) {
+function say(text, { force = false, every = 4000, low = false } = {}) {
   if (!voiceOn || !("speechSynthesis" in window)) return;
   const now = Date.now();
+  if (low && (speechSynthesis.speaking || now - lastSpokeAt < 1500)) return;   // never talk over a rep count
   if (!force && text === lastSpoken && now - lastSpokeAt < every) return;
   if (!force && text !== lastSpoken && now - lastSpokeAt < 1200) return;   // don't talk over yourself
   speechSynthesis.cancel();
@@ -588,6 +594,7 @@ function startWorkout(asReference = false) {
   $("repN").textContent = "0"; $("repSub").textContent = cfg.label + (asReference ? " · 기준 렙" : " · 대기");
   $("repT").textContent = asReference ? "가벼운 무게로 완벽한 한 번을 하세요" : "동작을 시작하면 자동으로 셉니다";
   $("rep").hidden = false; $("tiltBig").hidden = true; $("done").hidden = true;
+  $("cornerCount").hidden = false; $("cornerCount").querySelector(".n").textContent = "0";
   
   $("msg").textContent = (asReference ? "기준 렙 녹화. " : "") + `${countdownSec}초 뒤 선 자세로 1초 멈추면 시작. 스위치를 끄면 세트 종료.`
       + (workout.ref ? ` 기준 깊이 ${workout.ref.min}°.` : "");
@@ -642,7 +649,7 @@ function stepWorkout(wArg) {
   if (bal && w.ready && !w.armed) {
     const b = w.bal || (w.bal = { bar: 0, sh: 0, diff: 0 });
     b.bar = Math.max(b.bar, Math.abs(bal.bar)); b.sh = Math.max(b.sh, Math.abs(bal.sh)); b.diff = Math.max(b.diff, bal.diff);
-    if (w.state !== "up" && Math.abs(bal.bar) > 0.12 && now - (w.balSaidAt || 0) > 3000) { w.balSaidAt = now; say(bal.bar > 0 ? "왼쪽이 낮아요" : "오른쪽이 낮아요", { force: true }); }
+    if (w.state !== "up" && Math.abs(bal.bar) > 0.12 && now - (w.balSaidAt || 0) > 3000) { w.balSaidAt = now; say(bal.bar > 0 ? "왼쪽이 낮아요" : "오른쪽이 낮아요", { low: true }); }
   }
   const ang = w.angle;
   $("repAng").textContent = Math.round(ang) + "°";
@@ -688,9 +695,9 @@ function stepWorkout(wArg) {
       if (w.ref) rep.rom = Math.round((w.ref.max - w.minAngle) / (w.ref.max - w.ref.min) * 100);
       if (w.bal) { rep.bar = Math.round(w.bal.bar * 100); rep.sh = Math.round(w.bal.sh * 100); rep.diff = Math.round(w.bal.diff); w.bal = null; }
       w.reps.push(rep); w.tLastRep = now;
-      if (w.capture) { beep(880, 70); say(String(rep.n), { force: true }); w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180; return; }
+      if (w.capture) { beep(880, 70); say(String(rep.n), { force: true }); $("cornerCount").hidden = false; $("cornerCount").querySelector(".n").textContent = rep.n; w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180; return; }
       if (refMode) { saveReference(w, rep); return; }
-      $("repN").textContent = rep.n;
+      $("repN").textContent = rep.n; $("cornerCount").querySelector(".n").textContent = rep.n;
       $("repT").textContent = (rep.rom != null ? `ROM ${rep.rom}% · ` : "") + `하강 ${rep.down.toFixed(1)}s · 정지 ${rep.hold.toFixed(1)}s · 상승 ${rep.up.toFixed(1)}s`
         + (rep.bar != null ? ` · 바 ${rep.bar}% · 팔차 ${rep.diff}°` : "");
       beep(880, 70); say(String(rep.n), { force: true });
@@ -754,6 +761,7 @@ function startCapture() {
 }
 function finishCapture() {
   const c = capture; capture = null; if (!c) return null;
+  $("cornerCount").hidden = true;
   lastWarm = { exercise, at: new Date().toISOString(), reps: c.reps, partial: 0, frames: c.frames, ref: null, warm: true, started: c.started };
   stopRec().then(clip => { if (clip) { lastWarm.clip = clip.blob; lastWarm.clipStart = clip.start; putClip(lastWarm.at, clip.blob); } });
   if (!c.reps.length) return null;
@@ -776,7 +784,7 @@ function saveReference(w, rep) {
 }
 function endWorkout(reason) {
   const w = workout; workout = null; refMode = false;
-  $("stage").classList.remove("workout"); $("rep").hidden = true; $("tiltBig").hidden = false; $("hand").hidden = true; $("countBig").hidden = true;
+  $("stage").classList.remove("workout"); $("rep").hidden = true; $("tiltBig").hidden = false; $("hand").hidden = true; $("countBig").hidden = true; $("cornerCount").hidden = true;
   $("swWorkout").checked = false; $("swL").textContent = "운동";
   clapCooldownUntil = Date.now() + 3000;
   if (!w.reps.length && !w.partial) { $("msg").textContent = "렙 없이 종료됐습니다."; say("종료", { force: true }); return; }
