@@ -313,7 +313,8 @@
 <div id="analyze" hidden>
   <div class="hh"><button class="back" id="anClose" aria-label="뒤로" style="position:static">←</button><h1>영상 분석</h1></div>
   <p class="sub" style="margin:0;color:var(--muted);line-height:1.5">운동 영상을 고르면 같은 방식으로 관절을 추적해 횟수, 렙당 시간, 궤적을 뽑습니다. 영상은 폰 밖으로 나가지 않습니다. 운동 종류는 홈에서 고른 것(<b id="anEx"></b>)을 씁니다.</p>
-  <label class="fileBtn"><input type="file" id="anFile" accept="video/*" hidden><span>영상 선택</span></label>
+  <label class="fileBtn"><input type="file" id="anFile" accept="video/mp4,video/webm,video/quicktime,video/3gpp,.mp4,.webm,.mov,.3gp" hidden><span>갤러리에서 영상 선택</span></label>
+  <p class="sub" style="margin:-6px 0 0;color:var(--muted);font-size:13px">선택 창에서 "카메라"가 뜨면 "갤러리" 또는 "파일"을 고르세요.</p>
   <div class="setBlock" id="anProg" hidden>
     <div class="pb"><div class="pbIn" id="anBar"></div></div>
     <div class="sub" id="anStat">준비 중…</div>
