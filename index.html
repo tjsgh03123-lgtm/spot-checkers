@@ -306,6 +306,7 @@
 
 <div id="pick" hidden>
   <div class="hh"><button class="back" id="pickClose" aria-label="뒤로" style="position:static">←</button><h1>운동 선택</h1></div>
+  <button class="card exCard" data-ex="auto"><span class="ct">자동</span><span class="cs">보이는 관절을 잡고, 10초 워밍업 동작으로 움직이는 관절을 찾음</span></button>
   <button class="card exCard" data-ex="squat"><span class="ct">스쿼트</span><span class="cs">엉덩이·무릎·발목 · 측면 45°</span></button>
   <button class="card exCard" data-ex="pushup"><span class="ct">푸시업</span><span class="cs">어깨·팔꿈치·손목 · 측면, 폰 바닥 가까이</span></button>
   <button class="card exCard" data-ex="curl"><span class="ct">덤벨 컬</span><span class="cs">어깨·팔꿈치·손목 · 정면</span></button>
@@ -355,7 +356,16 @@ const EX = {
   curl:   { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y",   tip: "정면", up: 150, down: 60, label: "덤벨 컬", anchor: 0 },
   // both arms are loaded: rep angle = mean of both elbows, plus bar level / shoulder level / arm symmetry
   pulldown: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y", tip: "정면, 양팔 다 보이게", up: 150, down: 95, label: "랫풀다운", anchor: 0, both: true },
+  // auto: the 10 s warm-up decides which joints move; until then every joint that is reliably in frame is tracked
+  auto: { joints: null, names: [], span: [0, 1], axis: "y", tip: "워밍업 동작으로 관절 감지", up: 160, down: 100, label: "자동", anchor: 0, auto: true },
 };
+const curCfg = () => exercise === "auto" ? (autoCfg || EX.auto) : EX[exercise];
+let autoCfg = null;   // detected during the warm-up in auto mode
+// which joints are reliably in frame: an EMA of "visible and inside the picture" per joint, locked over ~2 s
+const visScore = new Array(33).fill(0);
+const inFrame = p => (p.visibility ?? 1) >= 0.6 && p.x > 0.03 && p.x < 0.97 && p.y > 0.03 && p.y < 0.97;
+function updateVisible(pose) { for (let i = 0; i < 33; i++) visScore[i] = visScore[i] * 0.9 + (pose && inFrame(pose[i]) ? 0.1 : 0); }
+const visibleSet = () => visScore.map((v, i) => v > 0.5 ? i : -1).filter(i => i >= 0);
 const LS = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const SS = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 
@@ -510,8 +520,10 @@ function loop() {
       lastTs = ts;
       const res = landmarker.detectForVideo(video, ts);
       lastPose = smoothPose(res.landmarks && res.landmarks[0] ? res.landmarks[0] : null, Date.now());
+      updateVisible(lastPose);
+      if (capture && capture.raw && lastPose) capture.raw.push({ t: Date.now() - capture.started, L: lastPose.map(q => ({ x: q.x, y: q.y, v: q.visibility ?? 1 })) });
       draw();
-      if (workout) { stepWorkout(); clapToEnd(Date.now()); } else { analyze(); if (capture) stepWorkout(capture); }
+      if (workout) { stepWorkout(); clapToEnd(Date.now()); } else { analyze(); if (capture && capture.cfg.joints) stepWorkout(capture); }
     }
     frames++; if (ts - fpsT > 1000) { $("fps").textContent = frames + " fps"; frames = 0; fpsT = ts; }
   }
@@ -525,8 +537,16 @@ function draw() {
   const vw = video.videoWidth, vh = video.videoHeight, cw = ov.width, ch = ov.height;
   const s = Math.max(cw / vw, ch / vh), ox = (cw - vw * s) / 2, oy = (ch - vh * s) / 2;
   const P = i => [ox + lastPose[i].x * vw * s, oy + lastPose[i].y * vh * s];
+  const cfg = curCfg();
+  if (!cfg.joints) {   // auto mode before detection: show what is reliably in frame, nothing else
+    const vs = visibleSet(), set = new Set(vs);
+    ctx.lineWidth = 3; ctx.strokeStyle = "rgba(197,240,62,.6)";
+    for (const [a, b] of [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]]) if (set.has(a) && set.has(b)) { const pa = P(a), pb = P(b); ctx.beginPath(); ctx.moveTo(...pa); ctx.lineTo(...pb); ctx.stroke(); }
+    ctx.fillStyle = "#c5f03e"; for (const i of vs) if (i === 0 || i >= 11) { const p = P(i); ctx.beginPath(); ctx.arc(p[0], p[1], 5, 0, 7); ctx.fill(); }
+    return;
+  }
   // only the loaded joints of this exercise: one side, or both sides for two-arm lifts (plus the bar between the wrists)
-  const cfg = EX[exercise], sides = cfg.both ? [0, 1] : [liveSide];
+  const sides = cfg.both ? [0, 1] : [liveSide];
   ctx.lineWidth = 6; ctx.lineCap = "round";
   for (const sd of sides) {
     const ids = cfg.joints.map(p => p[sd]);
@@ -542,7 +562,8 @@ function draw() {
 }
 const vis = (i) => lastPose && (lastPose[i].visibility ?? 1) > 0.5 && lastPose[i].x > 0.02 && lastPose[i].x < 0.98 && lastPose[i].y > 0.02 && lastPose[i].y < 0.98;
 function analyze() {
-  const cfg = EX[exercise];
+  const cfg = curCfg();
+  if (!cfg.joints) { analyzeAuto(); return; }
   if (!lastPose) {
     bodyFrac = 0; fullOk = false;
     $("vBody").textContent = "--"; $("hBody").textContent = "사람 없음"; $("gBody").className = "g bad";
@@ -603,6 +624,24 @@ function detectClap() {
 }
 $("doneClose").onclick = e => { e.stopPropagation(); $("done").hidden = true; };
 
+// auto mode before detection: the spot is good when a whole arm or leg chain is reliably in frame
+function analyzeAuto() {
+  const vs = visibleSet(), set = new Set(vs);
+  const chainOk = (ch, sd) => ch.every(p => set.has(p[sd]));
+  const arms = [chainOk(CH.arm, 0), chainOk(CH.arm, 1)], legs = [chainOk(CH.leg, 0), chainOk(CH.leg, 1)];
+  const n = vs.filter(i => i >= 11 && i <= 28).length;
+  fullOk = arms.some(Boolean) || legs.some(Boolean);
+  const what = [arms[0] && "왼팔", arms[1] && "오른팔", legs[0] && "왼다리", legs[1] && "오른다리"].filter(Boolean).join("·");
+  $("vBody").textContent = n + "/18";
+  $("gBody").className = "g " + (fullOk ? "ok" : n >= 4 ? "warn" : "bad");
+  $("hBody").textContent = fullOk ? `보임: ${what}` : !lastPose ? "사람 없음" : "팔 또는 다리가 통째로 보여야 해요";
+  const allOk = tiltState === "ok" && fullOk;
+  $("save").disabled = !allOk;
+  if (allOk && !scoring) $("msg").textContent = "보이는 관절 고정됨. 합장 후 10초간 운동 동작을 하면 움직이는 관절을 찾습니다.";
+  if (!scoring && !guideMuted) announce(allOk, tiltState, fullOk, "ok", $("hBody").textContent, "");
+  detectClap();
+}
+
 // ---------- rep counter with per-rep timing ----------
 // state: "up" | "down" | "mid". Timestamps mark every transition so each rep yields down / hold / up / rest durations.
 let workout = null;   // null = not in workout mode
@@ -618,11 +657,12 @@ let refMode = false;
 
 // Armed right after a passed spot test: the set starts itself on the first movement and ends on the button or a clap.
 function startWorkout(asReference = false) {
-  const cfg = EX[exercise];
+  const cfg = curCfg();
+  if (!cfg.joints) { $("msg").textContent = "먼저 10초 측정(합장)으로 움직이는 관절을 찾아야 합니다."; say("먼저 10초 측정으로 관절을 찾으세요", { force: true }); $("swWorkout").checked = false; return; }
   refMode = asReference;
   workout = { cfg, reps: [], partial: 0, state: "up", pending: null, pendingN: 0, angle: null,
               tLeaveUp: 0, tEnterDown: 0, tLeaveDown: 0, tLastRep: 0, minAngle: 180, maxAngle: 0, started: 0, armed: true,
-              frames: [], repStartFrame: 0, ref: asReference ? null : refOf(exercise),
+              frames: [], repStartFrame: 0, ref: asReference ? null : (cfg.auto ? cfg.ref : refOf(exercise)),
               countdownUntil: Date.now() + countdownSec * 1000, ready: false, stableSince: 0, prevAng: null, lastSaid: -1 };
   $("swWorkout").checked = true; $("swL").textContent = "운동 중";
   guideMuted = true; speechSynthesis.cancel(); lastTone = "";
@@ -680,7 +720,13 @@ function stepWorkout(wArg) {
   else sideLostSince = 0;
   liveSide = side; w.side = side;
   const [A, B, C] = cfg.joints.map(p => lastPose[p[side]]);
-  if ([A, B, C].some(p => (p.visibility ?? 1) < 0.4)) { $("repT").textContent = "관절이 안 보여요"; return; }
+  if ([A, B, C].some(p => (p.visibility ?? 1) < 0.4)) {
+    if (!w.lostAt) w.lostAt = now;
+    if (now - w.lostAt > 300 && !w.paused) { w.paused = true; w.state = "up"; w.pending = null; w.pendingN = 0; w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180; }
+    $("repT").textContent = w.paused ? "관절이 잘려서 잠시 멈춤 → 프레임 안으로" : "관절이 안 보여요"; return;
+  }
+  if (w.paused) { if (!w.backAt) w.backAt = now; if (now - w.backAt < 500) { $("repT").textContent = "다시 잡는 중…"; return; } w.paused = false; w.backAt = 0; w.angle = null; $("repT").textContent = `${w.reps.length}회 · 계속`; }
+  w.lostAt = 0;
   const raw = bal ? bal.mean : jointAngle(A, B, C);
   w.angle = w.angle == null ? raw : w.angle * 0.4 + raw * 0.6;   // light: landmarks are already smoothed
   if (bal && w.ready && !w.armed) {
@@ -791,14 +837,26 @@ async function getClip(key) {
 // The 10 s spot test doubles as the warm-up capture: light-weight reps done during it become the reference.
 let capture = null, lastWarm = null;
 function startCapture() {
-  const cfg = EX[exercise];
+  const cfg = curCfg();
   capture = { cfg, reps: [], partial: 0, state: "up", pending: null, pendingN: 0, angle: null, tLeaveUp: 0, tEnterDown: 0, tLeaveDown: 0,
-              tLastRep: 0, minAngle: 180, maxAngle: 0, started: Date.now(), armed: false, frames: [], repStartFrame: 0, ref: null, capture: true };
+              tLastRep: 0, minAngle: 180, maxAngle: 0, started: Date.now(), armed: false, frames: [], repStartFrame: 0, ref: null, capture: true,
+              raw: exercise === "auto" ? [] : null };
   startRec();
 }
 function finishCapture() {
   const c = capture; capture = null; if (!c) return null;
   $("cornerCount").hidden = true;
+  if (c.raw) {   // auto mode: find the moving chain among the joints that were reliably in frame
+    const res = autoAnalyze(c.raw, new Set(visibleSet()));
+    if (!res || res.error) { autoCfg = null; lastWarm = null; $("doneRef").textContent = "관절 감지 실패: " + ((res && res.error) || "동작이 없음") + " → 10초 측정을 다시 하세요"; return null; }
+    autoCfg = res.cfg; lockedSide = res.both ? null : res.side;
+    const best = res.reps.length ? res.reps.reduce((a, b) => b.min < a.min ? b : a) : null;
+    autoCfg.ref = best ? { min: best.min, max: res.hi, frames: res.frames.slice(best.f0, best.f1), warm: res.frames, at: new Date().toISOString() } : null;
+    lastWarm = { exercise: "auto", cfg: res.cfg, at: new Date().toISOString(), reps: res.reps, partial: res.partial, frames: res.frames, ref: null, warm: true, started: c.started };
+    stopRec().then(clip => { if (clip && lastWarm) { lastWarm.clip = clip.blob; lastWarm.clipStart = clip.start; putClip(lastWarm.at, clip.blob); } });
+    say(`감지. ${res.cfg.label}. 하중 ${res.cfg.names[res.cfg.load]}`, { force: true });
+    return { min: res.lo, max: res.hi, auto: true, label: res.cfg.label, load: res.cfg.names[res.cfg.load], n: res.reps.length };
+  }
   lastWarm = { exercise, at: new Date().toISOString(), reps: c.reps, partial: 0, frames: c.frames, ref: null, warm: true, started: c.started };
   stopRec().then(clip => { if (clip) { lastWarm.clip = clip.blob; lastWarm.clipStart = clip.start; putClip(lastWarm.at, clip.blob); } });
   if (!c.reps.length) return null;
@@ -864,7 +922,7 @@ function endWorkout(reason) {
       <div class="kv"><span>균형 판정</span><b>${mx("bar") > 12 || mx("diff") > 15 ? "한쪽 쏠림 있음" : "양호"}</b></div>`;
   }
   const sessions = JSON.parse(LS("sessions") || "[]");
-  lastSession = { exercise: w.exKey || exercise, at: new Date().toISOString(), reps: r, partial: w.partial, frames: w.frames, started: w.started,
+  lastSession = { exercise: w.exKey || (w.cfg.auto ? "auto" : exercise), at: new Date().toISOString(), reps: r, partial: w.partial, frames: w.frames, started: w.started,
                   ref: w.ref ? { min: w.ref.min, max: w.ref.max, frames: w.ref.frames } : null,
                   cfg: w.cfg.auto ? { joints: w.cfg.joints, names: w.cfg.names, label: w.cfg.label, anchor: w.cfg.anchor, load: w.cfg.load, both: w.cfg.both, auto: true, view: w.cfg.view, kind: w.cfg.kind, trace: w.cfg.trace } : undefined };
   if (w.cfg.auto) {
@@ -1091,7 +1149,7 @@ const labelOf = s => (s.cfg && s.cfg.label) || (EX[s.exercise] || {}).label || s
 const CH = { arm: [[11,12],[13,14],[15,16]], leg: [[23,24],[25,26],[27,28]] };
 const CHN = { arm: ["어깨","팔꿈치","손목"], leg: ["엉덩이","무릎","발목"] };
 function pct(arr, q) { const a = arr.filter(Number.isFinite).sort((x, y) => x - y); return a.length ? a[Math.min(a.length - 1, Math.floor(q * a.length))] : NaN; }
-function autoAnalyze(rawIn) {   // raw: [{t, L:[{x,y,v}×33]}]
+function autoAnalyze(rawIn, allowed) {   // raw: [{t, L:[{x,y,v}×33]}]; allowed: Set of joint ids that are reliably in frame (optional)
   let raw = rawIn; if (raw.length < 20) return null;
   const vis = (L, i) => (L[i].v ?? 1) >= 0.5;
   const angOf = (L, ch, sd) => { const [a, b, c] = ch.map(p => L[p[sd]]); return ch.every(p => vis(L, p[sd])) ? jointAngle(a, b, c) : NaN; };
@@ -1099,6 +1157,7 @@ function autoAnalyze(rawIn) {   // raw: [{t, L:[{x,y,v}×33]}]
   const series = {}; for (const k of ["arm", "leg"]) for (const sd of [0, 1]) series[k + sd] = raw.map(f => angOf(f.L, CH[k], sd));
   const range = ser => { const lo = pct(ser, 0.05), hi = pct(ser, 0.95); return Number.isFinite(lo) ? hi - lo : 0; };
   const rg = Object.fromEntries(Object.entries(series).map(([k, v]) => [k, range(v)]));
+  if (allowed) for (const k of ["arm", "leg"]) for (const sd of [0, 1]) if (!CH[k].every(p => allowed.has(p[sd]))) rg[k + sd] = 0;   // only chains that were fully in frame
   const kind = Math.max(rg.arm0, rg.arm1) >= Math.max(rg.leg0, rg.leg1) ? "arm" : "leg";
   const r0 = rg[kind + "0"], r1 = rg[kind + "1"];
   if (Math.max(r0, r1) < 25) return { error: "움직이는 관절을 찾지 못했습니다 (각도 변화 25° 미만)" };
@@ -1240,7 +1299,7 @@ function renderSettings() {
   $("segClap").querySelectorAll("button").forEach(b => b.classList.toggle("on", (b.dataset.v === "1") === clapOn));
   $("segFacing").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === $("facing").value));
   $("segVoice").querySelectorAll("button").forEach(b => b.classList.toggle("on", (b.dataset.v === "1") === voiceOn));
-  $("refList").innerHTML = Object.keys(EX).map(k => { const r = refOf(k);
+  $("refList").innerHTML = Object.keys(EX).filter(k => k !== "auto").map(k => { const r = refOf(k);
     return `<div class="refRow"><span>${EX[k].label}</span><span>${r ? `최저 ${r.min}° · ${new Date(r.at).toLocaleDateString("ko-KR")}` : "없음"}</span>${r ? `<button data-k="${k}">지우기</button>` : ""}</div>`; }).join("");
   $("refList").querySelectorAll("button").forEach(b => b.onclick = () => { try { localStorage.removeItem("ref_" + b.dataset.k); } catch {} renderSettings(); });
 }
@@ -1288,7 +1347,7 @@ function leaveStage() {
   if (workout) endWorkout("뒤로가기");
   $("summary").hidden = true; $("done").hidden = true;
   try { video.srcObject?.getTracks().forEach(t => t.stop()); } catch {}
-  video.srcObject = null; lastPose = null; sm = null; lockedSide = null; speechSynthesis.cancel();
+  video.srcObject = null; lastPose = null; sm = null; lockedSide = null; autoCfg = null; visScore.fill(0); speechSynthesis.cancel();
   $("stage").hidden = true; $("setup").hidden = false; renderHome();
   $("start").disabled = false; $("start").querySelector(".ct").textContent = "카메라 켜기";
 };
@@ -1323,9 +1382,10 @@ function runScore() {
       guideMuted = true; lastTone = ""; speechSynthesis.cancel();
       const a = Math.round(okN / n * 100), b = Math.round(tiltOkN / n * 100), pass = a >= 95 && b >= 95;
       spotPassed = pass;
-      if (pass && sideVotes[0] + sideVotes[1] > 0) lockedSide = sideVotes[1] > sideVotes[0] ? 1 : 0;   // lock the better-seen side
+      if (pass && exercise !== "auto" && sideVotes[0] + sideVotes[1] > 0) lockedSide = sideVotes[1] > sideVotes[0] ? 1 : 0;   // lock the better-seen side
       const ref = finishCapture();
-      $("doneRef").textContent = (ref ? `가벼운 무게 ${lastWarm.reps.length}회 → 기준 궤적 저장 (최저 ${ref.min}°)` : "측정 중 동작이 없어 기준 궤적은 저장되지 않았습니다")
+      if (ref && ref.auto) $("doneRef").textContent = `감지: ${ref.label} · 하중 ${ref.load} · ${ref.n}회 · 각도 ${ref.min}~${ref.max}° → 이 관절로 고정`;
+      else if (exercise !== "auto") $("doneRef").textContent = (ref ? `가벼운 무게 ${lastWarm.reps.length}회 → 기준 궤적 저장 (최저 ${ref.min}°)` : "측정 중 동작이 없어 기준 궤적은 저장되지 않았습니다")
         + (lockedSide != null ? ` · ${lockedSide ? "오른쪽" : "왼쪽"} 관절 고정` : "");
       $("doneReplay").hidden = !(lastWarm && lastWarm.frames.length);
       const verdict = pass ? "이 자리 합격" : a < 95 ? "동작 중 몸이 잘립니다. 거리나 높이 조정" : "폰이 흔들립니다. 거치 보강";
@@ -1338,7 +1398,7 @@ function runScore() {
       $("doneVerdict").style.color = "#0b0f14";
       $("done").hidden = false;
       beep(pass ? 880 : 300, 160, 3);
-      say(`측정 완료. 관절 보임 ${a}퍼센트, 기울기 ${b}퍼센트. ${verdict}` + (ref ? ` 기준 궤적 저장, 최저 ${ref.min}도.` : "") + (pass ? " 스위치를 켜면 운동을 시작합니다." : ""), { force: true });
+      say(`측정 완료. 관절 보임 ${a}퍼센트, 기울기 ${b}퍼센트. ${verdict}` + (ref && !ref.auto ? ` 기준 궤적 저장, 최저 ${ref.min}도.` : "") + (pass ? " 스위치를 켜면 운동을 시작합니다." : ""), { force: true });
     }
   }, 200);
 }
