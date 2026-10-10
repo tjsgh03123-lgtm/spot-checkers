@@ -59,6 +59,17 @@
   .sw .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #f2f4f6; transition: left .2s; }
   .sw input:checked + .track { background: var(--ok); } .sw input:checked + .track::after { left: 27px; }
   .sw input:disabled + .track { opacity: .4; }
+  /* live gauges: tilt / level / angle indicators, big numbers + a marker on a bar, colored by threshold */
+  #gauges { position: absolute; right: 10px; top: 64px; z-index: 11; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+  .gg { background: rgba(11,15,20,.72); backdrop-filter: blur(6px); border-radius: 12px; padding: 5px 10px 8px; width: 140px; color: var(--ok); }
+  .gg.warn { color: #ffd166; } .gg.bad { color: #ff5c5c; }
+  .gg .l { font-size: 11px; font-weight: 700; color: var(--muted); display: flex; justify-content: space-between; }
+  .gg .v { font-size: 23px; font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; display: flex; align-items: baseline; gap: 6px; }
+  .gg .v small { font-size: 12px; color: var(--muted); font-weight: 700; }
+  .gg .bar { position: relative; height: 6px; border-radius: 3px; background: #2a3642; margin-top: 5px; }
+  .gg .bar::before { content: ""; position: absolute; left: var(--z, 50%); top: -3px; width: 2px; height: 12px; background: rgba(255,255,255,.45); margin-left: -1px; }
+  .gg .bar i { position: absolute; top: -4px; width: 14px; height: 14px; border-radius: 50%; background: currentColor; margin-left: -7px; left: 50%; transition: left .12s linear; box-shadow: 0 0 6px rgba(0,0,0,.6); }
+  .gg .bar .ok { position: absolute; top: 0; height: 100%; background: rgba(103,224,140,.35); border-radius: 3px; }
   #cornerCount { position: absolute; left: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 150px); z-index: 12; display: flex; align-items: baseline; gap: 4px;
     background: rgba(12,18,26,.72); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 6px 14px; pointer-events: none; }
   #cornerCount .n { font-size: 44px; font-weight: 900; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
@@ -282,6 +293,7 @@
   <label class="sw" id="swWrap"><span class="swL" id="swL">운동</span><input type="checkbox" id="swWorkout"><span class="track"></span></label>
   <div id="countBig" hidden></div>
   <div id="selInfo" hidden>화면의 관절을 터치하세요</div>
+  <div id="gauges" hidden></div>
   <div id="cornerCount" hidden><span class="n">0</span><span class="u">회</span></div>
   <div class="bottom">
     <div id="msg">폰을 자리에 세우고 화면 테두리가 초록이 될 때까지 각도를 조절하세요.</div>
@@ -849,6 +861,32 @@ function sideMetrics(L, side) {
   if (vis(K)) m.hinge = jointAngle(S, H, K);                       // 180 = standing straight, smaller = torso folded toward the thighs
   return m;
 }
+// ---------- live gauges ----------
+// setGauge(id, label, value, opts): opts.min/max = bar range, opts.zero = where the reference tick sits (default min, or 0 when signed),
+// opts.warn/bad = |value - zero| that turns the gauge yellow / red (opts.lowBad: value below bad is red instead), opts.unit, opts.sub (small text)
+const gaugeEls = {}, gaugePrev = {};
+function setGauge(id, label, value, o = {}) {
+  let g = gaugeEls[id];
+  if (!g) {
+    g = gaugeEls[id] = document.createElement("div"); g.className = "gg";
+    g.innerHTML = `<div class="l"><span></span><span class="sub"></span></div><div class="v"><span class="num"></span><small></small></div><div class="bar"><span class="ok"></span><i></i></div>`;
+    $("gauges").appendChild(g); $("gauges").hidden = false;
+  }
+  const min = o.min ?? 0, max = o.max ?? 90, zero = o.zero ?? (min < 0 ? 0 : min), unit = o.unit ?? "°";
+  const pct = v => Math.max(0, Math.min(100, (v - min) / (max - min) * 100));
+  const dev = o.lowBad ? Math.max(0, zero - value) : Math.abs(value - zero);
+  const prev = gaugePrev[id]; gaugePrev[id] = value;
+  const arrow = prev == null ? "" : value - prev > 1 ? "▲" : prev - value > 1 ? "▼" : "";
+  g.className = "gg" + (o.bad != null && dev >= o.bad ? " bad" : o.warn != null && dev >= o.warn ? " warn" : "");
+  g.querySelector(".l span").textContent = label; g.querySelector(".sub").textContent = o.sub || "";
+  g.querySelector(".num").textContent = (o.signed && value > 0 ? "+" : "") + Math.round(value) + unit;
+  g.querySelector("small").textContent = arrow;
+  g.querySelector(".bar").style.setProperty("--z", pct(zero) + "%");
+  g.querySelector("i").style.left = pct(value) + "%";
+  const ok = g.querySelector(".ok");
+  if (o.warn != null) { const a = o.lowBad ? pct(zero - o.warn) : pct(zero - o.warn), b = o.lowBad ? 100 : pct(zero + o.warn); ok.style.left = a + "%"; ok.style.width = Math.max(0, b - a) + "%"; } else ok.style.width = "0";
+}
+function clearGauges() { $("gauges").innerHTML = ""; $("gauges").hidden = true; for (const k in gaugeEls) delete gaugeEls[k]; for (const k in gaugePrev) delete gaugePrev[k]; }
 function trackSide(w, now, say) {
   const b = w.sideM, m = sideMetrics(lastPose, w.side || 0);
   if (!m) { $("repSide").textContent = "측면 지표 · 어깨와 엉덩이가 보여야 해요"; return; }
@@ -858,12 +896,15 @@ function trackSide(w, now, say) {
   const r = b.rep || (b.rep = {});
   for (const key of ["lean", "spine", "hinge"]) if (e[key] != null) { r[key + "Min"] = Math.min(r[key + "Min"] ?? e[key], e[key]); r[key + "Max"] = Math.max(r[key + "Max"] ?? e[key], e[key]); }
   const live = [];
-  if (b.sel.includes("lean") && e.lean != null) live.push(`기울기 ${Math.round(e.lean)}°`);
+  if (b.sel.includes("lean") && e.lean != null) { live.push(`기울기 ${Math.round(e.lean)}°`);
+    setGauge("lean", "허리 기울기", e.lean, { min: 0, max: 90, zero: b.base ? b.base.lean : 0, warn: SIDE_THR.leanDeltaWarn * 0.7, bad: SIDE_THR.leanDeltaWarn, sub: b.base ? `준비 ${Math.round(b.base.lean)}°` : "" }); }
   if (b.sel.includes("spine") && e.spine != null) {
     live.push(`접힘 ${Math.round(e.spine)}°`);
+    setGauge("spine", "척추 접힘", e.spine, { min: 0, max: 60, zero: 0, warn: SIDE_THR.spineWarn * 0.6, bad: SIDE_THR.spineWarn });
     if (e.spine > SIDE_THR.spineWarn && w.state !== "up" && now - b.saidAt > SIDE_THR.spineSayEvery) { b.saidAt = now; say(SIDE_THR.spineSay, { low: true }); }
   }
-  if (b.sel.includes("hinge") && e.hinge != null) live.push(`상체·허벅지 ${Math.round(e.hinge)}°`);
+  if (b.sel.includes("hinge") && e.hinge != null) { live.push(`상체·허벅지 ${Math.round(e.hinge)}°`);
+    setGauge("hinge", "상체-허벅지", e.hinge, { min: 30, max: 180, zero: 180, warn: 180 - SIDE_THR.hingeLow - 20, bad: 180 - SIDE_THR.hingeLow, lowBad: true }); }
   $("repSide").textContent = "측면 지표 · " + (live.length ? live.join(" · ") : "관절이 더 보여야 해요");
 }
 function sideRepValues(w) {
@@ -947,7 +988,7 @@ function startWorkout(asReference = false) {
               back: backActive(cfg) ? { view: camView === "side" ? "side" : "front", sel: backSel.slice(), base: null, ema: null, rep: null, saidAt: 0 } : null,
               sideM: sideActive() ? { sel: sideSel.slice(), base: null, ema: null, rep: null, saidAt: 0 } : null };
   $("repBack").hidden = !workout.back; $("repBack").textContent = "";
-  $("repSide").hidden = !workout.sideM; $("repSide").textContent = "";
+  $("repSide").hidden = !workout.sideM; $("repSide").textContent = ""; clearGauges();
   if (exercise !== "auto" && cfg.preset) workout.exKey = exercise;
   $("swWorkout").checked = true; $("swL").textContent = "운동 중";
   guideMuted = true; speechSynthesis.cancel(); lastTone = "";
@@ -1013,6 +1054,10 @@ function stepWorkout(wArg) {
   w.lostAt = 0;
   const raw = bal ? bal.mean : jointAngle(A, B, C);
   w.angle = w.angle == null ? raw : w.angle * 0.4 + raw * 0.6;   // light: landmarks are already smoothed
+  if (bal) {
+    setGauge("bar", "바 수평", bal.bar * 100, { min: -40, max: 40, zero: 0, warn: 8, bad: 12, unit: "%", signed: true, sub: bal.bar > 0.03 ? "왼쪽 낮음" : bal.bar < -0.03 ? "오른쪽 낮음" : "수평" });
+    setGauge("sh", "어깨 수평", bal.sh * 100, { min: -40, max: 40, zero: 0, warn: 8, bad: 12, unit: "%", signed: true });
+  }
   if (bal && w.ready && !w.armed) {
     const b = w.bal || (w.bal = { bar: 0, sh: 0, diff: 0 });
     b.bar = Math.max(b.bar, Math.abs(bal.bar)); b.sh = Math.max(b.sh, Math.abs(bal.sh)); b.diff = Math.max(b.diff, bal.diff);
@@ -1100,11 +1145,13 @@ function trackBack(w, now, say) {
   if (b.sel.includes("utrap") && e.shrug != null && b.base && b.base.shrug) {
     const drop = (1 - e.shrug / b.base.shrug) * 100;
     live.push(`승모상 ${drop >= 0 ? "+" : ""}${Math.round(drop)}%`);
+    setGauge("shrug", "어깨 으쓱", drop, { min: -20, max: 40, zero: 0, warn: BACK_THR.shrugWarn * 0.6, bad: BACK_THR.shrugWarn, unit: "%", signed: true });
     if (drop > BACK_THR.shrugWarn && w.state !== "up" && now - b.saidAt > BACK_THR.shrugSayEvery) { b.saidAt = now; say(BACK_THR.shrugSay, { low: true }); }
   }
   if (b.sel.includes("ltrap") && e.trapW != null && b.base && b.base.trapW) {
     live.push(`승모중하 폭 ${Math.round((e.trapW / b.base.trapW - 1) * 100)}%` + (e.trapD != null && b.base.trapD != null ? ` 하강 ${Math.round((e.trapD - b.base.trapD) * 100)}%` : ""));
   }
+  if (b.view === "side" && e.torsoTilt != null && b.base && !w.sideM) setGauge("lean", "몸통 반동", e.torsoTilt, { min: 0, max: 90, zero: b.base.torsoTilt, warn: BACK_THR.rowLeanWarn * 0.6, bad: BACK_THR.rowLeanWarn, sub: `준비 ${Math.round(b.base.torsoTilt)}°` });
   $("repBack").textContent = "추정 상대 지표 · " + (live.length ? live.join(" · ") : "관절이 더 보여야 해요") + (b.view === "side" && b.sel.includes("ltrap") ? " (측면: 승모중하 정확도 낮음)" : "");
 }
 // per-rep numbers stored on the rep (all relative, in % of the ready stance or degrees)
@@ -1222,7 +1269,7 @@ function saveReference(w, rep) {
   const ref = { min: rep.min, max: Math.round(Math.max(w.maxAngle, w.cfg.up + 5)), down: rep.down, hold: rep.hold, up: rep.up,
                 frames, warm: w.frames, at: new Date().toISOString() };
   SS("ref_" + exercise, JSON.stringify(ref));
-  workout = null; refMode = false;
+  workout = null; refMode = false; clearGauges();
   $("stage").classList.remove("workout"); $("rep").hidden = true; $("tiltBig").hidden = false; $("countBig").hidden = true;
   $("swWorkout").checked = false; $("swL").textContent = "운동";
   $("msg").textContent = `기준 렙 저장: 최저 ${ref.min}° · 하강 ${ref.down.toFixed(1)}s · 상승 ${ref.up.toFixed(1)}s. 이제 이 깊이의 85% 이상만 렙으로 셉니다.`;
@@ -1230,7 +1277,7 @@ function saveReference(w, rep) {
 }
 function endWorkout(reason) {
   const w = workout; workout = null; refMode = false;
-  $("stage").classList.remove("workout"); $("rep").hidden = true; $("tiltBig").hidden = false; $("hand").hidden = true; $("countBig").hidden = true; $("cornerCount").hidden = true; renderSel();
+  $("stage").classList.remove("workout"); $("rep").hidden = true; $("tiltBig").hidden = false; $("hand").hidden = true; $("countBig").hidden = true; $("cornerCount").hidden = true; clearGauges(); renderSel();
   $("swWorkout").checked = false; $("swL").textContent = "운동";
   clapCooldownUntil = Date.now() + 3000;
   if (!w.reps.length && !w.partial) { $("msg").textContent = "렙 없이 종료됐습니다."; say("종료", { force: true }); return; }
