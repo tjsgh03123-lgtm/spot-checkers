@@ -312,7 +312,9 @@
 
 <div id="analyze" hidden>
   <div class="hh"><button class="back" id="anClose" aria-label="뒤로" style="position:static">←</button><h1>영상 분석</h1></div>
-  <p class="sub" style="margin:0;color:var(--muted);line-height:1.5">운동 영상을 고르면 같은 방식으로 관절을 추적해 횟수, 렙당 시간, 궤적을 뽑습니다. 영상은 폰 밖으로 나가지 않습니다. 운동 종류는 홈에서 고른 것(<b id="anEx"></b>)을 씁니다.</p>
+  <p class="sub" style="margin:0;color:var(--muted);line-height:1.5">운동 영상을 고르면 같은 방식으로 관절을 추적해 횟수, 렙당 시간, 궤적을 뽑습니다. 영상은 폰 밖으로 나가지 않습니다. "자동"이면 움직이는 관절·하중 방향·촬영 각도를 영상에서 찾아내고, 측면이면 경로 수직성, 정면이면 바 균형, 위에서면 팔꿈치 위치를 잽니다. 홈에서 고른 운동(<b id="anEx"></b>)으로 분석하려면 "홈 선택".</p>
+  <div class="setRow"><span>운동 감지</span><div class="seg"><button id="anAutoBtn" class="on">자동</button><button id="anManBtn">홈 선택 (<span id="anEx2"></span>)</button></div></div>
+  <input type="checkbox" id="anAuto" checked hidden>
   <label class="fileBtn"><input type="file" id="anFile" accept="video/*,image/*" hidden><span>갤러리에서 영상 선택</span></label>
   <p class="sub" style="margin:-6px 0 0;color:var(--muted);font-size:13px">선택 창에서 "갤러리"를 고르세요. 갤러리가 없으면 "내 파일 → 동영상"에서 골라도 됩니다.</p>
   <p class="sub" id="anErr" style="margin:-6px 0 0;color:var(--bad);font-size:14px"></p>
@@ -845,11 +847,11 @@ function endWorkout(reason) {
   $("sumList").innerHTML = r.map((x, i) => `
     <div class="rr ${i === fi ? "fast" : i === si ? "slow" : ""}">
       <span class="no">${x.n}</span><b>${tot(x).toFixed(1)}s</b>
-      <span class="seg">↓${x.down.toFixed(1)} · ■${x.hold.toFixed(1)} · ↑${x.up.toFixed(1)}${x.bar != null ? ` · 바${x.bar}%·팔${x.diff}°` : ""}</span><span class="min">${x.min}°</span>
+      <span class="seg">↓${x.down.toFixed(1)} · ■${x.hold.toFixed(1)} · ↑${x.up.toFixed(1)}${x.bar != null ? ` · 바${x.bar}%·팔${x.diff}°` : ""}${x.pathDev != null ? ` · 이탈${x.pathDev}%` : ""}${x.flareL != null ? ` · 팔꿈치${x.flareL}/${x.flareR}%` : ""}</span><span class="min">${x.min}°</span>
     </div>`).join("");
   $("summary").hidden = false;
   $("sumRows").innerHTML += w.ref ? `<div class="kv"><span>기준 대비 ROM 평균</span><b>${Math.round(avg("rom"))}%</b></div>` : "";
-  if (w.cfg.both && n) {
+  if (w.cfg.both && !w.cfg.auto && n) {
     const mx = k => Math.max(...r.map(x => x[k] || 0));
     $("sumRows").innerHTML += `<div class="kv"><span>바 기울기 (평균 / 최대)</span><b>${Math.round(avg("bar"))}% / ${mx("bar")}%</b></div>
       <div class="kv"><span>어깨 기울기 (평균 / 최대)</span><b>${Math.round(avg("sh"))}% / ${mx("sh")}%</b></div>
@@ -857,8 +859,18 @@ function endWorkout(reason) {
       <div class="kv"><span>균형 판정</span><b>${mx("bar") > 12 || mx("diff") > 15 ? "한쪽 쏠림 있음" : "양호"}</b></div>`;
   }
   const sessions = JSON.parse(LS("sessions") || "[]");
-  lastSession = { exercise, at: new Date().toISOString(), reps: r, partial: w.partial, frames: w.frames, started: w.started,
-                  ref: w.ref ? { min: w.ref.min, max: w.ref.max, frames: w.ref.frames } : null };
+  lastSession = { exercise: w.exKey || exercise, at: new Date().toISOString(), reps: r, partial: w.partial, frames: w.frames, started: w.started,
+                  ref: w.ref ? { min: w.ref.min, max: w.ref.max, frames: w.ref.frames } : null,
+                  cfg: w.cfg.auto ? { joints: w.cfg.joints, names: w.cfg.names, label: w.cfg.label, anchor: w.cfg.anchor, load: w.cfg.load, both: w.cfg.both, auto: true, view: w.cfg.view, kind: w.cfg.kind, trace: w.cfg.trace } : undefined };
+  if (w.cfg.auto) {
+    const avgOf = k => { const v = r.map(x => x[k]).filter(Number.isFinite); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
+    const mxOf = k => { const v = r.map(x => x[k]).filter(Number.isFinite); return v.length ? Math.max(...v) : null; };
+    let rows = `<div class="kv"><span>감지</span><b>${w.cfg.label}</b></div><div class="kv"><span>하중 → 고정</span><b>${w.cfg.names[w.cfg.load]} → ${w.cfg.names[w.cfg.anchor]}</b></div>`;
+    if (w.cfg.view === "side" && avgOf("pathDev") != null) rows += `<div class="kv"><span>경로 수직 이탈 (평균 / 최대)</span><b>${avgOf("pathDev")}% / ${mxOf("pathDev")}%</b></div><div class="kv"><span>경로 판정</span><b>${mxOf("pathDev") > 25 ? "앞뒤로 흔들림" : "수직에 가까움"}</b></div>`;
+    if (w.cfg.view === "front" && avgOf("bar") != null) rows += `<div class="kv"><span>바 기울기 (평균 / 최대)</span><b>${avgOf("bar")}% / ${mxOf("bar")}%</b></div><div class="kv"><span>좌우 팔 각도 차 (평균 / 최대)</span><b>${avgOf("diff")}° / ${mxOf("diff")}°</b></div><div class="kv"><span>균형 판정</span><b>${mxOf("bar") > 12 || mxOf("diff") > 15 ? "한쪽 쏠림 있음" : "양호"}</b></div>`;
+    if (w.cfg.view === "top" && avgOf("flareL") != null) rows += `<div class="kv"><span>팔꿈치 벌어짐 왼 / 오</span><b>${avgOf("flareL")}% / ${avgOf("flareR")}%</b></div><div class="kv"><span>팔꿈치 판정</span><b>${Math.abs(avgOf("flareL") - avgOf("flareR")) > 15 ? "좌우 비대칭" : "대칭"}</b></div>`;
+    $("sumRows").innerHTML += rows;
+  }
   const stored = { ...lastSession, clipStart: 0 };
   sessions.push(stored);
   const save = () => { try { SS("sessions", JSON.stringify(sessions.slice(-30))); } catch { sessions.forEach(s => delete s.frames); SS("sessions", JSON.stringify(sessions.slice(-30))); } };
@@ -878,7 +890,7 @@ const BONES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[
 let rp = null;   // replay state
 async function openReplay(s) {
   if (!s.frames || !s.frames.length) { $("msg").textContent = "이 세트에는 동선 데이터가 없습니다."; return; }
-  const cfg = EX[s.exercise];
+  const cfg = cfgOf(s);
   rp = { s, cfg, i: 0, playing: true, speed: 1, last: performance.now(), rep: 0, showRef: !!(s.ref && s.ref.frames), video: null, offset: 0 };
   $("rpRef").hidden = !(s.ref && s.ref.frames); $("rpRef").textContent = "기준 겹침 켜짐";
   $("rpTitle").textContent = s.warm ? "가벼운 무게 궤적" : "본 세트 궤적";
@@ -942,7 +954,7 @@ function drawReplay() {
   const both = !!rp.cfg.both;
   const chain = fr0 => rp.cfg.joints.map(p => p[sideOf(fr0)]);       // the loaded joints only (one side)
   const chain2 = fr0 => rp.cfg.joints.map(p => p[1]);
-  const trace = fr0 => { const ch = chain(fr0); return both ? [15, 16] : rp.s.exercise === "squat" ? [ch[0], ch[1]] : [ch[2], ch[1]]; };   // wrists / hip+knee / wrist+elbow
+  const trace = fr0 => { const ch = chain(fr0); if (both) return [ch[2], chain2(fr0)[2]]; const ti = rp.cfg.trace || (rp.s.exercise === "squat" ? [0, 1] : [2, 1]); return [ch[ti[0]], ch[ti[1]]]; };
   const colors = ["#c5f03e", "#4ade80"];
   // anchor = the loaded joint farthest from the weight (ankle / wrist / shoulder). Every path point is drawn relative to the
   // anchor of its own frame and placed on the anchor of the current frame, so body drift never moves the trajectory.
@@ -1004,11 +1016,12 @@ async function analyzeFile(file) {
   const v = $("anVideo"); v.src = URL.createObjectURL(file); v.muted = true; v.playsInline = true;
   await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error("영상을 열 수 없습니다")); }).catch(e => { $("anStat").textContent = e.message; });
   if (!v.duration) return;
+  const auto = $("anAuto").checked;
   const cfg = EX[exercise];
   const w = { cfg, reps: [], partial: 0, state: "up", pending: null, pendingN: 0, angle: null, tLeaveUp: 0, tEnterDown: 0, tLeaveDown: 0,
-              tLastRep: 0, minAngle: 180, maxAngle: 0, started: 0, armed: false, ready: true, frames: [], repStartFrame: 0, ref: refOf(exercise),
+              tLastRep: 0, minAngle: 180, maxAngle: 0, started: 0, armed: false, ready: true, frames: [], repStartFrame: 0, ref: auto ? null : refOf(exercise),
               clock: () => Math.round(v.currentTime * 1000), silent: true };
-  an = { w, v, stop: false };
+  an = { w, v, stop: false, auto, raw: [] };
   sm = null; lockedSide = null;
   v.playbackRate = Math.min(4, 2);   // analyse faster than real time where the phone can decode it
   let lastT = -1;
@@ -1020,10 +1033,11 @@ async function analyzeFile(file) {
       try {
         const res = landmarker.detectForVideo(v, Math.round(t * 1000));
         lastPose = smoothPose(res.landmarks && res.landmarks[0] ? res.landmarks[0] : null, Math.round(t * 1000));
-        stepWorkout(w);
+        if (an.auto) { if (lastPose) an.raw.push({ t: Math.round(t * 1000), L: lastPose.map(q => ({ x: q.x, y: q.y, v: q.visibility ?? 1 })) }); }
+        else stepWorkout(w);
       } catch {}
       $("anBar").style.width = Math.round(t / v.duration * 100) + "%";
-      $("anStat").textContent = `분석 중 ${Math.round(t / v.duration * 100)}% · ${w.reps.length}회`;
+      $("anStat").textContent = `분석 중 ${Math.round(t / v.duration * 100)}%` + (an.auto ? "" : ` · ${w.reps.length}회`);
     }
     if (v.ended) { finishAnalysis(file); return; }
     if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(step); else requestAnimationFrame(step);
@@ -1034,8 +1048,13 @@ async function analyzeFile(file) {
 }
 function finishAnalysis(file) {
   if (!an) return;
-  const { w, v } = an; an = null; lastPose = null;
+  const { w, v, auto, raw } = an; an = null; lastPose = null;
   try { v.pause(); } catch {}
+  if (auto) {
+    const res = autoAnalyze(raw);
+    if (!res || res.error) { $("anStat").textContent = (res && res.error) || "관절을 찾지 못했습니다."; $("anBar").style.width = "100%"; return; }
+    w.cfg = res.cfg; w.frames = res.frames; w.reps = res.reps; w.partial = res.partial; w.exKey = "auto"; w.autoRes = res;
+  }
   if (!w.reps.length && !w.partial) { $("anStat").textContent = "렙을 찾지 못했습니다. 운동 종류와 촬영 각도를 확인하세요."; $("anBar").style.width = "100%"; return; }
   workout = w; endWorkout("영상 분석");   // same summary / storage path as a live set
   if (lastSession) {
@@ -1045,9 +1064,12 @@ function finishAnalysis(file) {
     putClip(lastSession.at, file);
   }
   $("anProg").hidden = true; $("anDone").hidden = false;
-  $("anRes").textContent = `${w.cfg.label} ${w.reps.length}회` + (w.partial ? ` · 부분 ${w.partial}` : "") + ` · 영상 ${v.duration.toFixed(0)}초`;
+  $("anRes").textContent = `${w.cfg.label} ${w.reps.length}회` + (w.partial ? ` · 부분 ${w.partial}` : "") + ` · 영상 ${v.duration.toFixed(0)}초`
+    + (w.autoRes ? ` · 하중: ${w.cfg.names[w.cfg.load]} · 고정: ${w.cfg.names[w.cfg.anchor]} · 각도 ${w.autoRes.lo}~${w.autoRes.hi}°` : "");
 }
-$("anBtn").onclick = () => { $("anEx").textContent = EX[exercise].label; $("anProg").hidden = true; $("anDone").hidden = true; $("analyze").hidden = false; pushScreen("analyze"); };
+$("anAutoBtn").onclick = () => { $("anAuto").checked = true; $("anAutoBtn").classList.add("on"); $("anManBtn").classList.remove("on"); };
+$("anManBtn").onclick = () => { $("anAuto").checked = false; $("anManBtn").classList.add("on"); $("anAutoBtn").classList.remove("on"); };
+$("anBtn").onclick = () => { $("anEx").textContent = EX[exercise].label; $("anEx2").textContent = EX[exercise].label; $("anProg").hidden = true; $("anDone").hidden = true; $("analyze").hidden = false; pushScreen("analyze"); };
 $("anClose").onclick = () => goBack();
 $("anFile").onchange = () => {
   const f = $("anFile").files[0]; $("anFile").value = ""; $("anErr").textContent = "";
@@ -1059,6 +1081,90 @@ $("anCancel").onclick = () => { if (an) { an.stop = true; try { an.v.pause(); } 
 $("anSummary").onclick = () => { if (lastSession) $("summary").hidden = false; };
 $("anReplay").onclick = () => { if (lastSession) openReplay(lastSession); };
 
+const cfgOf = s => s.cfg || EX[s.exercise] || EX.squat;
+const labelOf = s => (s.cfg && s.cfg.label) || (EX[s.exercise] || {}).label || s.exercise;
+
+// ---------- auto analysis: find the loaded chain, the camera view, then count and measure ----------
+const CH = { arm: [[11,12],[13,14],[15,16]], leg: [[23,24],[25,26],[27,28]] };
+const CHN = { arm: ["어깨","팔꿈치","손목"], leg: ["엉덩이","무릎","발목"] };
+function pct(arr, q) { const a = arr.filter(Number.isFinite).sort((x, y) => x - y); return a.length ? a[Math.min(a.length - 1, Math.floor(q * a.length))] : NaN; }
+function autoAnalyze(raw) {   // raw: [{t, L:[{x,y,v}×33]}]
+  if (raw.length < 20) return null;
+  const vis = (L, i) => (L[i].v ?? 1) >= 0.5;
+  const angOf = (L, ch, sd) => { const [a, b, c] = ch.map(p => L[p[sd]]); return ch.every(p => vis(L, p[sd])) ? jointAngle(a, b, c) : NaN; };
+  // 1. which chain moves: angle range (5th→95th percentile) per chain and side
+  const series = {}; for (const k of ["arm", "leg"]) for (const sd of [0, 1]) series[k + sd] = raw.map(f => angOf(f.L, CH[k], sd));
+  const range = ser => { const lo = pct(ser, 0.05), hi = pct(ser, 0.95); return Number.isFinite(lo) ? hi - lo : 0; };
+  const rg = Object.fromEntries(Object.entries(series).map(([k, v]) => [k, range(v)]));
+  const kind = Math.max(rg.arm0, rg.arm1) >= Math.max(rg.leg0, rg.leg1) ? "arm" : "leg";
+  const r0 = rg[kind + "0"], r1 = rg[kind + "1"];
+  if (Math.max(r0, r1) < 25) return { error: "움직이는 관절을 찾지 못했습니다 (각도 변화 25° 미만)" };
+  const seenBoth = raw.filter(f => CH[kind].every(p => vis(f.L, p[0]) && vis(f.L, p[1]))).length / raw.length;
+  const both = seenBoth > 0.7 && Math.min(r0, r1) > 0.6 * Math.max(r0, r1);
+  const side = r1 > r0 ? 1 : 0;
+  // 2. camera view from body proportions (shoulder width vs torso length) and hip visibility
+  const good = raw.filter(f => vis(f.L, 11) && vis(f.L, 12));
+  const shW = good.length ? good.reduce((a, f) => a + Math.hypot(f.L[11].x - f.L[12].x, f.L[11].y - f.L[12].y), 0) / good.length : 0.2;
+  const hipSeen = raw.filter(f => vis(f.L, 23) && vis(f.L, 24)).length / raw.length;
+  const torso = good.length ? good.reduce((a, f) => a + Math.hypot((f.L[11].x + f.L[12].x) / 2 - (f.L[23].x + f.L[24].x) / 2, (f.L[11].y + f.L[12].y) / 2 - (f.L[23].y + f.L[24].y) / 2), 0) / good.length : 0.3;
+  const ratio = shW / Math.max(0.01, torso);
+  const view = ratio < 0.4 ? "side" : (hipSeen < 0.5 || ratio > 1.6) ? "top" : "front";
+  // 3. anchor = least-moving joint of the chain, load = most-moving
+  const motion = CH[kind].map(p => { const xs = raw.map(f => f.L[p[side]].x), ys = raw.map(f => f.L[p[side]].y); return Math.hypot(pct(xs, 0.95) - pct(xs, 0.05), pct(ys, 0.95) - pct(ys, 0.05)); });
+  const anchor = motion.indexOf(Math.min(...motion)), load = motion.indexOf(Math.max(...motion));
+  // 4. angle series → adaptive thresholds → reps
+  const ser = both ? raw.map((f, i) => { const a = series[kind + "0"][i], b = series[kind + "1"][i]; return Number.isFinite(a) && Number.isFinite(b) ? (a + b) / 2 : (Number.isFinite(a) ? a : b); }) : series[kind + side];
+  const sm = []; let prev = null; for (const a of ser) { if (!Number.isFinite(a)) { sm.push(prev); continue; } prev = prev == null ? a : prev * 0.4 + a * 0.6; sm.push(prev); }
+  const lo = pct(sm, 0.05), hi = pct(sm, 0.95), rng = hi - lo;
+  const up = hi - 0.2 * rng, down = lo + 0.25 * rng;
+  const cfg = { joints: CH[kind], names: CHN[kind], label: (kind === "arm" ? "팔" : "다리") + (both ? " 양쪽" : side ? " 오른쪽" : " 왼쪽") + " · " + ({ side: "측면", front: "정면", top: "위에서" })[view],
+                up: Math.round(up), down: Math.round(down), anchor, load, both, auto: true, view, kind, trace: both ? null : [load, 1] };
+  // frames in the live format
+  const frames = raw.map((f, i) => { const fr = [f.t, Math.round(sm[i] ?? hi)]; for (const j of TRACK) fr.push(Math.round(f.L[j].x * 1000), Math.round(f.L[j].y * 1000)); fr.push(side); return fr; });
+  // FSM over the series (same rules as live: 3-frame debounce, partial if it went clearly down but not to the bottom)
+  const reps = []; let partial = 0, state = "up", pend = null, pendN = 0, tLeaveUp = 0, tEnterDown = 0, tLeaveDown = 0, tLast = 0, minA = 180, f0 = 0;
+  for (let i = 0; i < frames.length; i++) {
+    const a = frames[i][1], t = frames[i][0], target = a > up ? "up" : a < down ? "down" : "mid";
+    if (target === pend) pendN++; else { pend = target; pendN = 1; }
+    if (state !== "up") minA = Math.min(minA, a);
+    if (pendN < 3 || target === state) continue;
+    const prevS = state; state = target;
+    if (prevS === "up" && target === "mid") { tLeaveUp = t; minA = a; f0 = i; }
+    else if (target === "down") { if (!tEnterDown || prevS !== "down") tEnterDown = t; }
+    else if (prevS === "down" && target === "mid") tLeaveDown = t;
+    else if (target === "up") {
+      if (tEnterDown && tLeaveDown && tEnterDown >= tLeaveUp) {
+        reps.push({ n: reps.length + 1, down: (tEnterDown - tLeaveUp) / 1000, hold: (tLeaveDown - tEnterDown) / 1000, up: (t - tLeaveDown) / 1000,
+                    rest: tLast ? (tLeaveUp - tLast) / 1000 : 0, min: Math.round(minA), f0, f1: i, rom: Math.round((hi - minA) / rng * 100) });
+        tLast = t;
+      } else if (tLeaveUp && minA <= up - 0.3 * rng) partial++;
+      tLeaveUp = tEnterDown = tLeaveDown = 0; minA = 180;
+    }
+  }
+  // 5. view-specific measures per rep
+  for (const r of reps) {
+    const fr = raw.slice(r.f0, r.f1); if (!fr.length) continue;
+    const L0 = fr.map(f => f.L), sw = f => Math.max(0.05, Math.hypot(f[11].x - f[12].x, f[11].y - f[12].y));
+    if (view === "side") {   // load path: horizontal wander relative to vertical travel
+      const j = CH[kind][load][side], xs = L0.map(L => L[j].x), ys = L0.map(L => L[j].y);
+      const dy = Math.max(...ys) - Math.min(...ys), dx = Math.max(...xs) - Math.min(...xs);
+      r.pathDev = dy > 0.02 ? Math.round(dx / dy * 100) : null;
+    }
+    if (view === "front" && both) {   // bar level and arm symmetry
+      const bar = L0.map(L => Math.abs(L[15].y - L[16].y) / sw(L)), sh = L0.map(L => Math.abs(L[11].y - L[12].y) / sw(L));
+      const dif = L0.map(L => { const a = angOf(L, CH[kind], 0), b = angOf(L, CH[kind], 1); return Number.isFinite(a) && Number.isFinite(b) ? Math.abs(a - b) : NaN; });
+      r.bar = Math.round(Math.max(...bar) * 100); r.sh = Math.round(Math.max(...sh) * 100); r.diff = Math.round(pct(dif, 0.95) || 0);
+    }
+    if (view === "top" && kind === "arm") {   // elbow flare: elbow's offset from the shoulder→wrist line, per side
+      const flare = sd => { const v = L0.map(L => { const S = L[CH.arm[0][sd]], E = L[CH.arm[1][sd]], W = L[CH.arm[2][sd]];
+        const ux = W.x - S.x, uy = W.y - S.y, len = Math.hypot(ux, uy) || 1, d = Math.abs((E.x - S.x) * uy - (E.y - S.y) * ux) / len;
+        return d / (Math.hypot(E.x - S.x, E.y - S.y) || 1); }); return Math.round(pct(v, 0.9) * 100); };
+      r.flareL = flare(0); r.flareR = flare(1);
+    }
+  }
+  return { cfg, frames, reps, partial, view, kind, both, side, hi: Math.round(hi), lo: Math.round(lo) };
+}
+
 // ---------- history ----------
 const repTot = x => x.down + x.hold + x.up;
 const sesAvg = s => s.reps.length ? s.reps.reduce((a, x) => a + repTot(x), 0) / s.reps.length : 0;
@@ -1068,8 +1174,9 @@ function renderHistory() {
   if (!all.length) { list.innerHTML = '<div class="empty">아직 기록이 없습니다. 세트를 하나 끝내면 여기에 쌓입니다.</div>'; trend.innerHTML = ""; return; }
   // trend: average rep time per set, most recent exercise only
   const lastEx = all[all.length - 1].exercise, same = all.filter(s => s.exercise === lastEx).slice(-12);
+  const lastLabel = labelOf(all[all.length - 1]);
   const mx = Math.max(...same.map(sesAvg));
-  trend.innerHTML = `<div class="tt"><span>${EX[lastEx].label} · 세트별 평균 렙 시간</span><span>최근 ${same.length}세트</span></div>
+  trend.innerHTML = `<div class="tt"><span>${lastLabel} · 세트별 평균 렙 시간</span><span>최근 ${same.length}세트</span></div>
     <div class="tb">${same.map(s => `<div style="height:${Math.max(5, sesAvg(s) / mx * 100)}%"></div>`).join("")}</div>
     <div class="tt"><span>${sesAvg(same[0]).toFixed(1)}s</span><span>→ ${sesAvg(same[same.length - 1]).toFixed(1)}s</span></div>`;
   // list, newest first, grouped by day; each set compared with the previous set of the same exercise
@@ -1089,7 +1196,7 @@ function renderHistory() {
       delta = `<div class="delta ${cls}">직전 세트 대비: 횟수 ${dr >= 0 ? "+" : ""}${dr} · 평균 렙 ${dt >= 0 ? "+" : ""}${dt.toFixed(1)}s</div>`;
     }
     html += `<div class="ses" data-i="${all.indexOf(s)}">
-      <div class="h1"><b>${EX[s.exercise].label} ${n}회${s.analyzed ? " · 영상 분석" : ""}</b><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
+      <div class="h1"><b>${labelOf(s)} ${n}회${s.analyzed ? " · 영상 분석" : ""}</b><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
       <div class="h2"><span>평균 <b>${avg.toFixed(1)}s</b></span><span>최빠 <b>${tots[fi].toFixed(1)}s</b></span><span>최느 <b>${tots[si].toFixed(1)}s</b></span>${s.partial ? `<span>부분 <b>${s.partial}</b></span>` : ""}</div>
       ${delta}
       ${s.frames && s.frames.length ? `<button class="rpOpen" data-i="${all.indexOf(s)}" style="flex:0;padding:8px 14px;font-size:14px">${s.hasClip ? "영상 · 동선 보기" : "동선 보기"}</button>` : ""}
