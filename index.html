@@ -132,7 +132,9 @@
   #muscleRow { display: flex; flex-wrap: wrap; gap: 8px; }
   #muscleRow button { padding: 10px 16px; font-size: 16px; border-radius: 999px; white-space: nowrap; flex: 0 0 auto; width: auto; }
   #muscleRow button.on { background: var(--accent); color: #0b0f14; font-weight: 800; }
-  #backChips { display: flex; flex-wrap: wrap; gap: 8px; }
+  #backChips, #sideChips { display: flex; flex-wrap: wrap; gap: 8px; }
+  #sideChips button { padding: 8px 14px; font-size: 15px; border-radius: 999px; white-space: nowrap; flex: 0 0 auto; width: auto; }
+  #sideChips button.on { background: var(--accent); color: #0b0f14; font-weight: 800; }
   #backChips button { padding: 8px 14px; font-size: 15px; border-radius: 999px; white-space: nowrap; flex: 0 0 auto; width: auto; }
   #backChips button.on { background: var(--accent); color: #0b0f14; font-weight: 800; }
   #analyze { position: fixed; inset: 0; z-index: 20; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 16px) 16px 32px; overflow: auto;
@@ -260,6 +262,7 @@
     <div class="t" id="repT"></div>
     <div class="ang" id="repAng">--°</div>
     <div class="ang" id="repBack" hidden></div>
+    <div class="ang" id="repSide" hidden></div>
   </div>
   <div id="summary" hidden>
     <div class="big" id="sumTitle">세트 종료</div>
@@ -308,7 +311,9 @@
 <div id="jp" hidden>
   <div class="hh"><button class="back" id="jpClose" aria-label="뒤로" style="position:static">←</button><h1>관절 선택</h1></div>
   <p class="sub" style="margin:0;color:var(--muted);line-height:1.5">그림에서 <b>끝 → 가운데 → 끝</b> 순서로 3개를 터치하세요. 가운데가 각도를 재는 관절입니다. (예: 발목 → 무릎 → 엉덩이)</p>
+  <div class="setRow"><span>촬영 방향</span><div class="seg" id="segViewJp"><button data-v="front">정면</button><button data-v="rear">후면</button><button data-v="side">측면</button></div></div>
   <div class="jpWrap"><canvas id="jpCanvas"></canvas></div>
+  <p class="sub" id="jpViewTip" style="margin:0;color:var(--muted)"></p>
   <div id="jpInfo" class="setRow" style="justify-content:center;font-weight:700"></div>
   <div class="row"><button id="jpBoth">한쪽 추적</button><button id="jpClear">초기화</button></div>
   <button class="card primary" id="jpDone"><span class="ct">선택 완료</span><span class="cs" id="jpDoneSub">카메라로 이동</span></button>
@@ -318,6 +323,8 @@
   <div class="hh"><button class="back" id="pickClose" aria-label="뒤로" style="position:static">←</button><h1>운동 선택</h1></div>
   <div class="sub" style="margin:0;color:var(--muted)">주동근을 고르면 맞는 운동만 보여줍니다</div>
   <div id="muscleRow"></div>
+  <div class="setRow"><span>촬영 방향</span><div class="seg" id="segView"><button data-v="front">정면</button><button data-v="rear">후면</button><button data-v="side">측면</button></div></div>
+  <div id="sideRow" hidden><p class="sub" style="color:var(--muted);margin:0 0 6px">측면 지표 (추정 상대 지표) — 볼 항목 선택</p><div id="sideChips"></div></div>
   <div id="backRow" hidden><p class="sub" style="color:var(--muted);margin:0 0 6px">등 지표 (추정 상대 지표 · 근육 활성도 아님) — 볼 항목 선택</p><div id="backChips"></div></div>
   <button class="card exCard" data-ex="auto"><span class="ct">직접 선택</span><span class="cs">전신 그림에서 추적할 관절 3개를 고름 (어떤 운동이든)</span></button>
   <button class="card exCard" data-ex="squat"><span class="ct">스쿼트</span><span class="cs">엉덩이·무릎·발목 · 측면 45°</span></button>
@@ -370,13 +377,13 @@ const $ = id => document.getElementById(id);
 // angle: the three joints (A-B-C, angle at B) the rep counter watches. up/down: angle thresholds for the two states.
 // A rep = leave UP → reach DOWN → return to UP. Between the thresholds is a dead band that stops flicker.
 const EX = {
-  squat:  { joints: [[23,24],[25,26],[27,28]], names: ["엉덩이","무릎","발목"], span: [0.35, 0.80], axis: "y",   tip: "측면 45°", up: 160, down: 100, label: "스쿼트", anchor: 2 },
-  pushup: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.25, 0.70], axis: "max", tip: "측면, 폰 바닥 가까이", up: 150, down: 95, label: "푸시업", anchor: 2 },
-  curl:   { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y",   tip: "정면", up: 150, down: 60, label: "덤벨 컬", anchor: 0 },
+  squat:  { joints: [[23,24],[25,26],[27,28]], names: ["엉덩이","무릎","발목"], span: [0.35, 0.80], axis: "y",   tip: "측면 45°", up: 160, down: 100, label: "스쿼트", anchor: 2, view: "side" },
+  pushup: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.25, 0.70], axis: "max", tip: "측면, 폰 바닥 가까이", up: 150, down: 95, label: "푸시업", anchor: 2, view: "side" },
+  curl:   { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y",   tip: "정면", up: 150, down: 60, label: "덤벨 컬", anchor: 0, view: "front" },
   // both arms are loaded: rep angle = mean of both elbows, plus bar level / shoulder level / arm symmetry
-  pulldown: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y", tip: "정면, 양팔 다 보이게", up: 150, down: 95, label: "랫풀다운", anchor: 0, both: true },
-  bench:    { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.25, 0.75], axis: "y",   tip: "측면", up: 150, down: 90, label: "벤치프레스", anchor: 0 },
-  shoulder: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y",   tip: "정면", up: 160, down: 90, label: "숄더프레스", anchor: 0 },
+  pulldown: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y", tip: "정면, 양팔 다 보이게", up: 150, down: 95, label: "랫풀다운", anchor: 0, both: true, view: "front" },
+  bench:    { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.25, 0.75], axis: "y",   tip: "측면", up: 150, down: 90, label: "벤치프레스", anchor: 0, view: "side" },
+  shoulder: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y",   tip: "정면", up: 160, down: 90, label: "숄더프레스", anchor: 0, view: "front" },
   // row (dumbbell / cable / barbell): side view, elbow angle counts reps; shoulder extension + torso tilt are the back metrics
   row:      { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.25, 0.75], axis: "y",   tip: "측면, 몸통이 다 보이게", up: 150, down: 85, label: "로우", anchor: 0, view: "side" },
   // auto: the 10 s warm-up decides which joints move; until then every joint that is reliably in frame is tracked
@@ -454,7 +461,7 @@ $("jpCanvas").addEventListener("pointerdown", e => {
   buildSelCfg(); try { SS("sel_" + exercise, JSON.stringify({ selected, selBoth })); } catch {} beep(660, 50); drawJP();
 });
 let jpNext = null;   // what to do after 선택 완료: "camera" (from the picker screen) or null (back to the camera screen)
-function openJP(next) { jpNext = next; $("jp").hidden = false; pushScreen("jp"); requestAnimationFrame(drawJP); }
+function openJP(next) { jpNext = next; $("jp").hidden = false; renderViewSeg(); pushScreen("jp"); requestAnimationFrame(drawJP); }
 $("jpBoth").onclick = () => { selBoth = !selBoth; buildSelCfg(); try { SS("sel_" + exercise, JSON.stringify({ selected, selBoth })); } catch {} drawJP(); };
 $("jpClear").onclick = () => { selected = []; selBoth = false; buildSelCfg(); drawJP(); };
 $("jpClose").onclick = () => goBack();
@@ -803,6 +810,93 @@ let backSel = (() => { try { const v = JSON.parse(LS("backSel") || "null"); retu
 const backLabel = id => (BACK_MUSCLES.find(m => m.id === id) || {}).label || id;
 const BACK_EX = ["pulldown", "row"];   // exercises where the back indicators are computed
 const backActive = cfg => muscle === "back" && BACK_EX.includes(exercise) && backSel.length > 0;
+// ---------- camera view: front / rear / side. Side view unlocks the torso indicators below ----------
+const VIEWS = { front: "정면", rear: "후면", side: "측면" };
+let camView = VIEWS[LS("camView")] ? LS("camView") : "front";
+const VIEW_TIP = { front: "정면: 좌우 균형·바 수평·어깨 지표", rear: "후면: 어깨·견갑 지표 (얼굴은 안 보여도 됨)", side: "측면: 허리 기울기·척추 접힘·상체-허벅지 각도를 잴 수 있어요" };
+function setView(v, rerender = true) { camView = v; SS("camView", v); if (rerender) { renderViewSeg(); if (!$("pick").hidden) renderPick(); } }
+function renderViewSeg() {
+  for (const id of ["segView", "segViewJp"]) $(id).querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === camView));
+  $("jpViewTip").textContent = VIEW_TIP[camView];
+}
+// ---------- side-view torso indicators (estimates from joints; the spine itself is not a landmark) ----------
+const SIDE_THR = {
+  leanWarn: 45,      // 허리 기울기: torso tilted this many degrees from vertical at the deepest point = heavy forward lean
+  leanDeltaWarn: 35, // or tilting this much more than the ready stance within one rep
+  spineWarn: 25,     // 척추 접힘: ear→shoulder→hip bending this far from a straight line = rounded upper back
+  spineSay: "등 펴세요",
+  spineSayEvery: 3000,
+  hingeLow: 60,      // 상체-허벅지 각도 (shoulder→hip→knee) below this at the bottom = chest folding onto the thighs
+  emaK: 0.5,
+};
+const SIDE_METRICS = [
+  { id: "lean", label: "허리 기울기", short: "기울기" },
+  { id: "spine", label: "척추 접힘", short: "접힘" },
+  { id: "hinge", label: "상체-허벅지 각도", short: "상체·허벅지" },
+];
+let sideSel = (() => { try { const v = JSON.parse(LS("sideSel") || "null"); return Array.isArray(v) ? v : ["lean", "spine", "hinge"]; } catch { return ["lean", "spine", "hinge"]; } })();
+const sideActive = () => camView === "side" && sideSel.length > 0;
+function sideMetrics(L, side) {
+  const vis = p => (p.visibility ?? 1) >= 0.4;
+  const sd = side === 1 ? [12, 24, 26, 8] : [11, 23, 25, 7];
+  let S = L[sd[0]], H = L[sd[1]], K = L[sd[2]], E = L[sd[3]];
+  if (!vis(S) || !vis(H)) { const o = side === 1 ? [11, 23, 25, 7] : [12, 24, 26, 8]; S = L[o[0]]; H = L[o[1]]; K = L[o[2]]; E = L[o[3]]; }
+  if (!vis(S) || !vis(H)) return null;
+  const m = { lean: Math.abs(Math.atan2(S.x - H.x, H.y - S.y) * 180 / Math.PI) };   // 0 = upright, 90 = horizontal
+  const head = vis(E) ? E : vis(L[0]) ? L[0] : null;
+  if (head) m.spine = Math.max(0, 180 - jointAngle(head, S, H));   // 0 = ear over the shoulder line, bigger = head/upper back folding forward
+  if (vis(K)) m.hinge = jointAngle(S, H, K);                       // 180 = standing straight, smaller = torso folded toward the thighs
+  return m;
+}
+function trackSide(w, now, say) {
+  const b = w.sideM, m = sideMetrics(lastPose, w.side || 0);
+  if (!m) { $("repSide").textContent = "측면 지표 · 어깨와 엉덩이가 보여야 해요"; return; }
+  const k = SIDE_THR.emaK, e = b.ema || (b.ema = {});
+  for (const key of ["lean", "spine", "hinge"]) if (m[key] != null) e[key] = e[key] == null ? m[key] : e[key] * (1 - k) + m[key] * k;
+  if (!w.ready) { $("repSide").textContent = "측면 지표 · 준비 자세에서 기준을 잡습니다"; return; }
+  const r = b.rep || (b.rep = {});
+  for (const key of ["lean", "spine", "hinge"]) if (e[key] != null) { r[key + "Min"] = Math.min(r[key + "Min"] ?? e[key], e[key]); r[key + "Max"] = Math.max(r[key + "Max"] ?? e[key], e[key]); }
+  const live = [];
+  if (b.sel.includes("lean") && e.lean != null) live.push(`기울기 ${Math.round(e.lean)}°`);
+  if (b.sel.includes("spine") && e.spine != null) {
+    live.push(`접힘 ${Math.round(e.spine)}°`);
+    if (e.spine > SIDE_THR.spineWarn && w.state !== "up" && now - b.saidAt > SIDE_THR.spineSayEvery) { b.saidAt = now; say(SIDE_THR.spineSay, { low: true }); }
+  }
+  if (b.sel.includes("hinge") && e.hinge != null) live.push(`상체·허벅지 ${Math.round(e.hinge)}°`);
+  $("repSide").textContent = "측면 지표 · " + (live.length ? live.join(" · ") : "관절이 더 보여야 해요");
+}
+function sideRepValues(w) {
+  const b = w.sideM, r = b.rep, base = b.base, out = {}; if (!r) return out;
+  if (b.sel.includes("lean") && r.leanMax != null) { out.lean = Math.round(r.leanMax); if (base && base.lean != null) out.leanD = Math.round(r.leanMax - base.lean); }
+  if (b.sel.includes("spine") && r.spineMax != null) out.spine = Math.round(r.spineMax);
+  if (b.sel.includes("hinge") && r.hingeMin != null) out.hinge = Math.round(r.hingeMin);
+  return out;
+}
+function sideRepText(x, sel) {
+  const t = [];
+  if (sel.includes("lean") && x.lean != null) t.push(`기울기 ${x.lean}°` + (x.leanD != null ? `(+${x.leanD})` : ""));
+  if (sel.includes("spine") && x.spine != null) t.push(`접힘 ${x.spine}°`);
+  if (sel.includes("hinge") && x.hinge != null) t.push(`상체·허벅지 ${x.hinge}°`);
+  return t.join(" · ");
+}
+function sideSummaryRows(reps, sel) {
+  const vals = k => reps.map(x => x[k]).filter(Number.isFinite);
+  const avg = k => { const v = vals(k); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
+  const mx = k => { const v = vals(k); return v.length ? Math.max(...v) : null; };
+  const mn = k => { const v = vals(k); return v.length ? Math.min(...v) : null; };
+  const kv = (k, v) => `<div class="kv"><span>${k}</span><b>${v}</b></div>`;
+  let rows = kv("측면 지표", "추정 상대 지표 (관절 위치 기반)");
+  if (sel.includes("lean") && avg("lean") != null)
+    rows += kv("허리 기울기 최대 (평균 / 최대)", `${avg("lean")}° / ${mx("lean")}°` + (avg("leanD") != null ? ` · 준비 자세 대비 +${avg("leanD")}°` : ""))
+          + kv("허리 기울기 판정", mx("lean") > SIDE_THR.leanWarn || (mx("leanD") ?? 0) > SIDE_THR.leanDeltaWarn ? "상체가 많이 숙여짐" : "상체 기울기 양호");
+  if (sel.includes("spine") && avg("spine") != null)
+    rows += kv("척추 접힘 최대 (평균 / 최대)", `${avg("spine")}° / ${mx("spine")}°`)
+          + kv("척추 접힘 판정", mx("spine") > SIDE_THR.spineWarn ? "등이 말림 (귀-어깨-엉덩이 꺾임)" : "척추 중립 유지");
+  if (sel.includes("hinge") && avg("hinge") != null)
+    rows += kv("상체-허벅지 최소 각도 (평균 / 최소)", `${avg("hinge")}° / ${mn("hinge")}°`)
+          + kv("상체-허벅지 판정", mn("hinge") < SIDE_THR.hingeLow ? "상체가 허벅지 쪽으로 접힘 (앞쏠림)" : "상체-허벅지 각도 양호");
+  return rows;
+}
 // per-frame raw indicators from one pose. view "front" (pulldown) or "side" (row). Returns null when the torso is not visible.
 function backMetrics(L, view, side) {
   const vis = p => (p.visibility ?? 1) >= 0.4;
@@ -849,8 +943,10 @@ function startWorkout(asReference = false) {
               tLeaveUp: 0, tEnterDown: 0, tLeaveDown: 0, tLastRep: 0, minAngle: 180, maxAngle: 0, started: 0, armed: true,
               frames: [], repStartFrame: 0, ref: asReference || exercise === "auto" ? null : refOf(exercise),
               countdownUntil: Date.now() + countdownSec * 1000, ready: false, stableSince: 0, prevAng: null, lastSaid: -1,
-              back: backActive(cfg) ? { view: cfg.view || "front", sel: backSel.slice(), base: null, ema: null, rep: null, saidAt: 0 } : null };
+              back: backActive(cfg) ? { view: camView === "side" ? "side" : "front", sel: backSel.slice(), base: null, ema: null, rep: null, saidAt: 0 } : null,
+              sideM: sideActive() ? { sel: sideSel.slice(), base: null, ema: null, rep: null, saidAt: 0 } : null };
   $("repBack").hidden = !workout.back; $("repBack").textContent = "";
+  $("repSide").hidden = !workout.sideM; $("repSide").textContent = "";
   if (exercise !== "auto" && cfg.preset) workout.exKey = exercise;
   $("swWorkout").checked = true; $("swL").textContent = "운동 중";
   guideMuted = true; speechSynthesis.cancel(); lastTone = "";
@@ -924,6 +1020,7 @@ function stepWorkout(wArg) {
   const ang = w.angle;
   $("repAng").textContent = Math.round(ang) + "°";
   if (w.back) trackBack(w, now, say);
+  if (w.sideM) trackSide(w, now, say);
   // arming: countdown first (phone handling / posture setup is ignored), then a still standing stance for 1 s
   if (w.armed && !w.ready) {
     if (now < w.countdownUntil) {
@@ -938,7 +1035,7 @@ function stepWorkout(wArg) {
     if (still) { if (!w.stableSince) w.stableSince = now; } else w.stableSince = 0;
     $("repT").textContent = still ? "준비 자세 확인 중…" : "선 자세로 잠시 멈추세요";
     if (w.stableSince && now - w.stableSince >= 1000) { w.ready = true; w.state = "up"; w.pending = null; beep(880, 120, 2); say("시작", { force: true });
-      if (w.back && w.back.ema) w.back.base = { ...w.back.ema };   /* the ready stance is the baseline for shrug / depression */ $("repT").textContent = refMode ? "가벼운 무게로 완벽한 한 번" : "동작을 시작하면 셉니다"; }
+      if (w.back && w.back.ema) w.back.base = { ...w.back.ema }; if (w.sideM && w.sideM.ema) w.sideM.base = { ...w.sideM.ema };   /* the ready stance is the baseline for shrug / depression */ $("repT").textContent = refMode ? "가벼운 무게로 완벽한 한 번" : "동작을 시작하면 셉니다"; }
     return;
   }
   recordFrame(w, now);
@@ -967,12 +1064,13 @@ function stepWorkout(wArg) {
       if (w.ref) rep.rom = Math.round((w.ref.max - w.minAngle) / (w.ref.max - w.ref.min) * 100);
       if (w.bal) { rep.bar = Math.round(w.bal.bar * 100); rep.sh = Math.round(w.bal.sh * 100); rep.diff = Math.round(w.bal.diff); w.bal = null; }
       if (w.back) Object.assign(rep, backRepValues(w));
+      if (w.sideM) Object.assign(rep, sideRepValues(w));
       w.reps.push(rep); w.tLastRep = now;
       if (w.capture) { beep(880, 70); say(String(rep.n), { force: true }); $("cornerCount").hidden = false; $("cornerCount").querySelector(".n").textContent = rep.n; w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180; return; }
       if (refMode) { saveReference(w, rep); return; }
       $("repN").textContent = rep.n; $("cornerCount").querySelector(".n").textContent = rep.n;
       $("repT").textContent = (rep.rom != null ? `ROM ${rep.rom}% · ` : "") + `하강 ${rep.down.toFixed(1)}s · 정지 ${rep.hold.toFixed(1)}s · 상승 ${rep.up.toFixed(1)}s`
-        + (rep.bar != null ? ` · 바 ${rep.bar}% · 팔차 ${rep.diff}°` : "") + (w.back ? " · " + backRepText(rep, w.back.sel) : "");
+        + (rep.bar != null ? ` · 바 ${rep.bar}% · 팔차 ${rep.diff}°` : "") + (w.back ? " · " + backRepText(rep, w.back.sel) : "") + (w.sideM ? " · " + sideRepText(rep, w.sideM.sel) : "");
       beep(880, 70); say(String(rep.n), { force: true });
     } else if (w.capture) {
       // warm-up capture: shallow dips are just ignored
@@ -984,7 +1082,7 @@ function stepWorkout(wArg) {
     } else if (w.tLeaveUp) {
       $("repT").textContent = w.reps.length ? `${w.reps.length}회 · 다음 렙` : "동작을 시작하면 자동으로 셉니다";   // standing sway, ignore
     }
-    w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180; if (w.back) w.back.rep = null;
+    w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180; if (w.back) w.back.rep = null; if (w.sideM) w.sideM.rep = null;
   }
 }
 // per-frame back indicators: smooth, keep min/max inside the current rep, warn on shrugging, show the live line
@@ -1162,7 +1260,7 @@ function endWorkout(reason) {
   $("sumList").innerHTML = r.map((x, i) => `
     <div class="rr ${i === fi ? "fast" : i === si ? "slow" : ""}">
       <span class="no">${x.n}</span><b>${tot(x).toFixed(1)}s</b>
-      <span class="seg">↓${x.down.toFixed(1)} · ■${x.hold.toFixed(1)} · ↑${x.up.toFixed(1)}${x.bar != null ? ` · 바${x.bar}%·팔${x.diff}°` : ""}${x.pathDev != null ? ` · 이탈${x.pathDev}%` : ""}${x.flareL != null ? ` · 팔꿈치${x.flareL}/${x.flareR}%` : ""}${w.back ? " · " + backRepText(x, w.back.sel) : ""}</span><span class="min">${x.min}°</span>
+      <span class="seg">↓${x.down.toFixed(1)} · ■${x.hold.toFixed(1)} · ↑${x.up.toFixed(1)}${x.bar != null ? ` · 바${x.bar}%·팔${x.diff}°` : ""}${x.pathDev != null ? ` · 이탈${x.pathDev}%` : ""}${x.flareL != null ? ` · 팔꿈치${x.flareL}/${x.flareR}%` : ""}${w.back ? " · " + backRepText(x, w.back.sel) : ""}${w.sideM ? " · " + sideRepText(x, w.sideM.sel) : ""}</span><span class="min">${x.min}°</span>
     </div>`).join("");
   $("summary").hidden = false;
   $("sumRows").innerHTML += w.ref ? `<div class="kv"><span>기준 대비 ROM 평균</span><b>${Math.round(avg("rom"))}%</b></div>` : "";
@@ -1174,8 +1272,9 @@ function endWorkout(reason) {
       <div class="kv"><span>균형 판정</span><b>${mx("bar") > 12 || mx("diff") > 15 ? "한쪽 쏠림 있음" : "양호"}</b></div>`;
   }
   if (w.back && n) $("sumRows").innerHTML += backSummaryRows(r, w.back.sel, w.back.view);
+  if (w.sideM && n) $("sumRows").innerHTML += sideSummaryRows(r, w.sideM.sel);
   const sessions = JSON.parse(LS("sessions") || "[]");
-  lastSession = { exercise: w.exKey || (w.cfg.auto ? "auto" : exercise), muscle: muscle !== "all" ? muscle : undefined, back: w.back ? { sel: w.back.sel, view: w.back.view } : undefined,
+  lastSession = { exercise: w.exKey || (w.cfg.auto ? "auto" : exercise), muscle: muscle !== "all" ? muscle : undefined, back: w.back ? { sel: w.back.sel, view: w.back.view } : undefined, side: w.sideM ? { sel: w.sideM.sel } : undefined, view: camView,
                   at: new Date().toISOString(), reps: r, partial: w.partial, frames: w.frames, started: w.started,
                   ref: w.ref ? { min: w.ref.min, max: w.ref.max, frames: w.ref.frames } : null,
                   cfg: w.cfg.auto ? { joints: w.cfg.joints, names: w.cfg.names, label: w.cfg.label, anchor: w.cfg.anchor, load: w.cfg.load, both: w.cfg.both, auto: true, view: w.cfg.view, kind: w.cfg.kind, trace: w.cfg.trace } : undefined };
@@ -1519,12 +1618,13 @@ function renderHistory() {
       delta = `<div class="delta ${cls}">직전 세트 대비: 횟수 ${dr >= 0 ? "+" : ""}${dr} · 평균 렙 ${dt >= 0 ? "+" : ""}${dt.toFixed(1)}s</div>`;
     }
     html += `<div class="ses" data-i="${all.indexOf(s)}">
-      <div class="h1"><b>${labelOf(s)} ${n}회${s.muscle ? " · " + muscleLabel(s.muscle) : ""}${s.analyzed ? " · 영상 분석" : ""}</b><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
+      <div class="h1"><b>${labelOf(s)} ${n}회${s.muscle ? " · " + muscleLabel(s.muscle) : ""}${s.view ? " · " + VIEWS[s.view] : ""}${s.analyzed ? " · 영상 분석" : ""}</b><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
       <div class="h2"><span>평균 <b>${avg.toFixed(1)}s</b></span><span>최빠 <b>${tots[fi].toFixed(1)}s</b></span><span>최느 <b>${tots[si].toFixed(1)}s</b></span>${s.partial ? `<span>부분 <b>${s.partial}</b></span>` : ""}</div>
       ${delta}
+      ${s.side ? `<div class="h2" style="flex-wrap:wrap">${sideSummaryRows(r, s.side.sel).replace(/<div class="kv"><span>([^<]*)<\/span><b>([^<]*)<\/b><\/div>/g, "<span>$1 <b>$2</b></span>")}</div>` : ""}
       ${s.back ? `<div class="h2" style="flex-wrap:wrap">${backSummaryRows(r, s.back.sel, s.back.view).replace(/<div class="kv"><span>([^<]*)<\/span><b>([^<]*)<\/b><\/div>/g, "<span>$1 <b>$2</b></span>")}</div>` : ""}
       ${s.frames && s.frames.length ? `<button class="rpOpen" data-i="${all.indexOf(s)}" style="flex:0;padding:8px 14px;font-size:14px">${s.hasClip ? "영상 · 동선 보기" : "동선 보기"}</button>` : ""}
-      <div class="detail">${r.map((x, i) => `<div class="rr ${i === fi ? "fast" : i === si ? "slow" : ""}"><span class="no">${x.n}</span><b>${repTot(x).toFixed(1)}s</b><span class="seg">↓${x.down.toFixed(1)} · ■${x.hold.toFixed(1)} · ↑${x.up.toFixed(1)}${s.back ? " · " + backRepText(x, s.back.sel) : ""}</span><span class="min">${x.min}°</span></div>`).join("")}</div>
+      <div class="detail">${r.map((x, i) => `<div class="rr ${i === fi ? "fast" : i === si ? "slow" : ""}"><span class="no">${x.n}</span><b>${repTot(x).toFixed(1)}s</b><span class="seg">↓${x.down.toFixed(1)} · ■${x.hold.toFixed(1)} · ↑${x.up.toFixed(1)}${s.back ? " · " + backRepText(x, s.back.sel) : ""}${s.side ? " · " + sideRepText(x, s.side.sel) : ""}</span><span class="min">${x.min}°</span></div>`).join("")}</div>
     </div>`;
   }
   list.innerHTML = html;
@@ -1566,6 +1666,13 @@ function renderPick() {
   renderMuscles();
   const allowed = MUSCLES.find(m => m.id === muscle).ex;
   $("pick").querySelectorAll(".exCard").forEach(b => { b.hidden = !!allowed && b.dataset.ex !== "auto" && !allowed.includes(b.dataset.ex); });
+  renderViewSeg();
+  $("sideRow").hidden = camView !== "side";
+  $("sideChips").innerHTML = SIDE_METRICS.map(m => `<button data-s="${m.id}" class="${sideSel.includes(m.id) ? "on" : ""}">${m.label}</button>`).join("");
+  $("sideChips").querySelectorAll("button").forEach(b => b.onclick = () => {
+    const id = b.dataset.s; sideSel = sideSel.includes(id) ? sideSel.filter(x => x !== id) : [...sideSel, id];
+    SS("sideSel", JSON.stringify(sideSel)); renderPick();
+  });
   $("backRow").hidden = muscle !== "back";
   $("backChips").innerHTML = BACK_MUSCLES.map(m => `<button data-b="${m.id}" class="${backSel.includes(m.id) ? "on" : ""}">${m.label}</button>`).join("");
   $("backChips").querySelectorAll("button").forEach(b => b.onclick = () => {
@@ -1573,11 +1680,14 @@ function renderPick() {
     SS("backSel", JSON.stringify(backSel)); renderPick();
   });
   $("pick").querySelectorAll(".exCard").forEach(b => b.classList.toggle("on", b.dataset.ex === exercise));
-  $("pickTip").textContent = EX[exercise].label + " · " + EX[exercise].tip + (refOf(exercise) ? ` · 기준 궤적 있음 (최저 ${refOf(exercise).min}°)` : "") + (muscle === "back" && BACK_EX.includes(exercise) ? " · 등 지표 추적" : "");
+  $("pickTip").textContent = EX[exercise].label + " · " + EX[exercise].tip + (refOf(exercise) ? ` · 기준 궤적 있음 (최저 ${refOf(exercise).min}°)` : "") + (muscle === "back" && BACK_EX.includes(exercise) ? " · 등 지표 추적" : "") + (camView === "side" && sideSel.length ? " · 측면 지표 추적" : "");
   $("startSub").textContent = EX[exercise].label + "로 시작";
 }
+for (const id of ["segView", "segViewJp"]) $(id).querySelectorAll("button").forEach(b => b.onclick = () => setView(b.dataset.v));
 $("pick").querySelectorAll(".exCard").forEach(b => b.onclick = () => {
-  $("exercise").value = b.dataset.ex; SS("exercise", b.dataset.ex); renderPick();
+  $("exercise").value = b.dataset.ex; SS("exercise", b.dataset.ex);
+  if (EX[b.dataset.ex].view) setView(EX[b.dataset.ex].view, false);   // preset exercises bring their usual camera side; can be changed right here
+  renderPick();
   try { const sv = JSON.parse(LS("sel_" + exercise) || "null"); if (sv && sv.selected) { selected = sv.selected; selBoth = !!sv.selBoth; } else { const c = EX[exercise]; selected = c.joints ? c.joints.map(p => p[0]) : []; selBoth = !!c.both; } } catch {}
   buildSelCfg();
   if (exercise === "auto") openJP("camera");
