@@ -385,7 +385,7 @@ let visionMod = null;
 async function vision() { if (!visionMod) visionMod = await import(VISION_URL); return visionMod; }
 
 const $ = id => document.getElementById(id);
-const APP_VERSION = "2026-10-11b";   // bump when the counting logic changes, so a diagnostics file says which logic produced it
+const APP_VERSION = "2026-10-11c";   // bump when the counting logic changes, so a diagnostics file says which logic produced it
 // Only the joints the rep counter needs must be in frame. Head or feet may be cut off.
 // joints: landmark ids (L/R pairs); one side visible is enough. span: how much of the frame those joints should cover.
 // angle: the three joints (A-B-C, angle at B) the rep counter watches. up/down: angle thresholds for the two states.
@@ -629,7 +629,8 @@ let lockedSide = null, sideVotes = [0, 0], sideLostSince = 0;   // side chosen d
 // with almost no lag while a joint at rest is filtered hard and stops trembling. Frame-rate aware (uses the real dt).
 // Tuning lives here: minCutoff = how still a resting joint is (lower = calmer, more lag at slow speeds);
 // beta = how fast the filter opens up with speed (higher = less lag); deadband = ignore sub-pixel noise at rest (normalized units).
-const SMOOTH = { minCutoff: 0.6, beta: 8, dCutoff: 1.5, deadband: 0.002, holdMs: 500, predictMs: 70 };   // predictMs: display-only look-ahead that cancels the detector's own delay
+const SMOOTH = { minCutoff: 0.6, beta: 8, dCutoff: 1.5, deadband: 0.002, holdMs: 500, predictMs: 70,
+                 jumpMax: 0.08, jumpFrames: 2 };   // a joint that leaps > 8% of the frame in one step while it was slow is a detector glitch: hold it up to 2 frames   // predictMs: display-only look-ahead that cancels the detector's own delay
 let sm = null, smT = 0, delegateUsed = "";
 function smoothPose(raw, now) {
   if (!raw) { sm = null; return null; }
@@ -642,6 +643,10 @@ function smoothPose(raw, now) {
     if (v < 0.4 && q.visibility >= 0.4) { if (!q.lostAt) q.lostAt = now; if (now - q.lostAt < SMOOTH.holdMs) continue; }   // dropout: hold, don't jump
     q.lostAt = 0;
     let dx = p.x - q.x, dy = p.y - q.y;
+    // glitch rejection: a sudden leap from a slow joint is almost always a misdetection that snaps back within a frame or two
+    const leap = Math.hypot(dx, dy);
+    if (leap > SMOOTH.jumpMax && Math.hypot(q.vx, q.vy) < 0.6 && (q.skip || 0) < SMOOTH.jumpFrames) { q.skip = (q.skip || 0) + 1; continue; }
+    q.skip = 0;
     // velocity estimate (itself lightly filtered), then the adaptive cutoff
     q.vx += aD * (dx / dt - q.vx); q.vy += aD * (dy / dt - q.vy);
     const speed = Math.hypot(q.vx, q.vy);
@@ -1127,6 +1132,9 @@ function stepWorkout(wArg) {
       const rep = { n: w.reps.length + 1, down: (w.tEnterDown - w.tLeaveUp) / 1000, hold: (w.tLeaveDown - w.tEnterDown) / 1000,
                     up: (now - w.tLeaveDown) / 1000, rest: w.tLastRep ? (w.tLeaveUp - w.tLastRep) / 1000 : 0, min: Math.round(w.minAngle),
                     f0: w.repStartFrame, f1: w.frames.length };
+      // phase times from the angle velocity: 하강 = moving toward the bottom, 정지 = angle not changing near the bottom, 상승 = moving back up.
+      // The threshold-based split put most of the movement between the down threshold and the bottom into "정지"; this is what the body actually did.
+      const ph = phaseTimes(w.frames, rep.f0, rep.f1); if (ph) { rep.thrDown = rep.down; rep.thrHold = rep.hold; rep.thrUp = rep.up; Object.assign(rep, ph); }
       if (w.ref) rep.rom = Math.round((w.ref.max - w.minAngle) / (w.ref.max - w.ref.min) * 100);
       if (w.bal) { rep.bar = Math.round(w.bal.bar * 100); rep.sh = Math.round(w.bal.sh * 100); rep.diff = Math.round(w.bal.diff); w.bal = null; }
       if (w.back) Object.assign(rep, backRepValues(w));
@@ -1150,6 +1158,21 @@ function stepWorkout(wArg) {
     }
     w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180; if (w.back) w.back.rep = null; if (w.sideM) w.sideM.rep = null;
   }
+}
+// velocity-based phase split of one rep (frames = [t_ms, angle, ...]). vThr = deg/s below which the joint counts as not moving.
+const PHASE = { vThr: 25 };
+function phaseTimes(frames, f0, f1) {
+  const n = f1 - f0; if (n < 5) return null;
+  const t = i => frames[i][0] / 1000, a = i => frames[i][1];
+  const v = i => { const j0 = Math.max(f0, i - 2), j1 = Math.min(f1 - 1, i + 2); const dt = t(j1) - t(j0); return dt > 0 ? (a(j1) - a(j0)) / dt : 0; };
+  let imin = f0; for (let i = f0; i < f1; i++) if (a(i) < a(imin)) imin = i;
+  let cs = f0; while (cs < imin && v(cs) > -PHASE.vThr) cs++;                 // descent starts when the angle really starts dropping
+  let ce = imin; while (ce > cs && Math.abs(v(ce)) < PHASE.vThr) ce--;        // ... and ends when it stops dropping
+  let es = imin; while (es < f1 - 1 && Math.abs(v(es)) < PHASE.vThr) es++;    // ascent starts when the angle starts rising again
+  let ee = f1 - 1; while (ee > es && v(ee) < PHASE.vThr) ee--;               // ... and ends when it stops rising
+  const down = Math.max(0, t(ce) - t(cs)), hold = Math.max(0, t(es) - t(ce)), up = Math.max(0, t(ee) - t(es));
+  if (down + hold + up < 0.2) return null;
+  return { down: +down.toFixed(3), hold: +hold.toFixed(3), up: +up.toFixed(3) };
 }
 // per-frame back indicators: smooth, keep min/max inside the current rep, warn on shrugging, show the live line
 function trackBack(w, now, say) {
