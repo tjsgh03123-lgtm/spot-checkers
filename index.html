@@ -446,7 +446,7 @@ function openJP(next) { jpNext = next; $("jp").hidden = false; pushScreen("jp");
 $("jpBoth").onclick = () => { selBoth = !selBoth; buildSelCfg(); try { SS("sel_" + exercise, JSON.stringify({ selected, selBoth })); } catch {} drawJP(); };
 $("jpClear").onclick = () => { selected = []; selBoth = false; buildSelCfg(); drawJP(); };
 $("jpClose").onclick = () => goBack();
-$("jpDone").onclick = () => { if (selected.length !== 3) return; const n = jpNext; goBack(); if (n === "camera") $("start").click(); else if (!$("stage").hidden) renderSel(); };
+$("jpDone").onclick = () => { if (selected.length !== 3) return; const n = jpNext; goBack(); if (n === "camera") { jpConfirmed = true; $("start").click(); jpConfirmed = false; } else if (!$("stage").hidden) renderSel(); };
 function tapJoint(cx, cy) {   // canvas-space tap → nearest reliably visible joint within 40 px
   if (!lastPose || workout) return;
   const vw = video.videoWidth, vh = video.videoHeight, cw = ov.width, ch = ov.height;
@@ -1442,7 +1442,9 @@ $("pick").querySelectorAll(".exCard").forEach(b => b.onclick = () => {
 });
 $("pick").querySelectorAll(".exCard").forEach(b => { const h = b.onclick; b.onclick = h; });
 $("pickBtn").onclick = () => { renderPick(); $("setupErr").textContent = ""; $("pick").hidden = false; pushScreen("pick"); };
-$("start").addEventListener("click", e => { if (exercise === "auto" && selected.length !== 3) { e.stopImmediatePropagation(); openJP("camera"); } }, true);
+// 직접 선택: the diagram always comes first (previous choice pre-filled); 선택 완료 is what turns the camera on
+let jpConfirmed = false;
+$("start").addEventListener("click", e => { if (exercise === "auto" && !jpConfirmed) { e.stopImmediatePropagation(); openJP("camera"); } }, true);
 $("pickClose").onclick = () => goBack();
 function renderSettings() {
   $("segCount").querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.v === countdownSec));
