@@ -385,7 +385,7 @@ let visionMod = null;
 async function vision() { if (!visionMod) visionMod = await import(VISION_URL); return visionMod; }
 
 const $ = id => document.getElementById(id);
-const APP_VERSION = "2026-10-11a";   // bump when the counting logic changes, so a diagnostics file says which logic produced it
+const APP_VERSION = "2026-10-11b";   // bump when the counting logic changes, so a diagnostics file says which logic produced it
 // Only the joints the rep counter needs must be in frame. Head or feet may be cut off.
 // joints: landmark ids (L/R pairs); one side visible is enough. span: how much of the frame those joints should cover.
 // angle: the three joints (A-B-C, angle at B) the rep counter watches. up/down: angle thresholds for the two states.
@@ -548,7 +548,7 @@ async function startCamera() {
     const err = new Error("x"); err.name = window.isSecureContext ? "NotFoundError" : "SecurityError"; throw err;
   }
   let stream;
-  const base = { width: { ideal: 640 }, height: { ideal: 960 } };
+  const base = { width: { ideal: 640 }, height: { ideal: 960 }, frameRate: { ideal: 30 } };
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: deviceId ? { deviceId: { exact: deviceId }, ...base } : { facingMode: { ideal: facing }, ...base }, audio: false });
@@ -619,25 +619,35 @@ async function loadPose() {
   const vision_ = await FilesetResolver.forVisionTasks(VISION_URL + "/wasm");
   const opts = d => ({ baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task", delegate: d },
     runningMode: "VIDEO", numPoses: 1 });
-  try { landmarker = await PoseLandmarker.createFromOptions(vision_, opts("GPU")); }
-  catch { landmarker = await PoseLandmarker.createFromOptions(vision_, opts("CPU")); }   // some phones/browsers have no WebGL for the GPU delegate
+  try { landmarker = await PoseLandmarker.createFromOptions(vision_, opts("GPU")); delegateUsed = "GPU"; }
+  catch { landmarker = await PoseLandmarker.createFromOptions(vision_, opts("CPU")); delegateUsed = "CPU"; }   // some phones/browsers have no WebGL for the GPU delegate
 }
 let liveSide = 0;   // which side (0 = left ids, 1 = right ids) the analysis is using right now
 let lockedSide = null, sideVotes = [0, 0], sideLostSince = 0;   // side chosen during the spot test, kept for the whole set
 
-// Adaptive smoothing (One-Euro style): heavy at rest so joints stop trembling, light while moving so reps stay sharp.
-// A joint that drops out keeps its last position for up to 0.5 s instead of jumping.
-let sm = null;
+// Joint smoothing: a real One-Euro filter per joint. The cutoff frequency rises with speed, so a fast curl or squat is followed
+// with almost no lag while a joint at rest is filtered hard and stops trembling. Frame-rate aware (uses the real dt).
+// Tuning lives here: minCutoff = how still a resting joint is (lower = calmer, more lag at slow speeds);
+// beta = how fast the filter opens up with speed (higher = less lag); deadband = ignore sub-pixel noise at rest (normalized units).
+const SMOOTH = { minCutoff: 0.6, beta: 8, dCutoff: 1.5, deadband: 0.002, holdMs: 500, predictMs: 70 };   // predictMs: display-only look-ahead that cancels the detector's own delay
+let sm = null, smT = 0, delegateUsed = "";
 function smoothPose(raw, now) {
   if (!raw) { sm = null; return null; }
-  if (!sm) { sm = raw.map(p => ({ x: p.x, y: p.y, z: p.z, visibility: p.visibility ?? 1, lostAt: 0 })); return sm; }
+  if (!sm) { sm = raw.map(p => ({ x: p.x, y: p.y, z: p.z, visibility: p.visibility ?? 1, lostAt: 0, vx: 0, vy: 0 })); smT = now; return sm; }
+  const dt = Math.min(0.2, Math.max(0.008, (now - smT) / 1000)); smT = now;
+  const alpha = fc => { const tau = 1 / (2 * Math.PI * fc); return 1 / (1 + tau / dt); };
+  const aD = alpha(SMOOTH.dCutoff);
   for (let i = 0; i < raw.length; i++) {
     const p = raw[i], q = sm[i], v = p.visibility ?? 1;
-    if (v < 0.4 && q.visibility >= 0.4) { if (!q.lostAt) q.lostAt = now; if (now - q.lostAt < 500) continue; }
+    if (v < 0.4 && q.visibility >= 0.4) { if (!q.lostAt) q.lostAt = now; if (now - q.lostAt < SMOOTH.holdMs) continue; }   // dropout: hold, don't jump
     q.lostAt = 0;
-    const d = Math.hypot(p.x - q.x, p.y - q.y);           // normalized movement since last frame
-    const a = Math.min(0.85, 0.12 + d * 10);              // ~0.12 at rest → 0.85 when moving fast
-    q.x += a * (p.x - q.x); q.y += a * (p.y - q.y); q.z += a * ((p.z ?? 0) - (q.z ?? 0)); q.visibility = v;
+    let dx = p.x - q.x, dy = p.y - q.y;
+    // velocity estimate (itself lightly filtered), then the adaptive cutoff
+    q.vx += aD * (dx / dt - q.vx); q.vy += aD * (dy / dt - q.vy);
+    const speed = Math.hypot(q.vx, q.vy);
+    if (speed < 0.15 && Math.hypot(dx, dy) < SMOOTH.deadband) { q.visibility = v; continue; }   // resting micro-jitter: freeze
+    const a = alpha(SMOOTH.minCutoff + SMOOTH.beta * speed);
+    q.x += a * dx; q.y += a * dy; q.z += a * ((p.z ?? 0) - (q.z ?? 0)); q.visibility = v;
   }
   return sm;
 }
@@ -655,7 +665,7 @@ function loop() {
       draw();
       if (workout) { stepWorkout(); clapToEnd(Date.now()); } else { analyze(); if (capture && capture.cfg.joints) stepWorkout(capture); }
     }
-    frames++; if (ts - fpsT > 1000) { $("fps").textContent = frames + " fps"; frames = 0; fpsT = ts; }
+    frames++; if (ts - fpsT > 1000) { $("fps").textContent = frames + " fps" + (delegateUsed ? " · " + delegateUsed : ""); frames = 0; fpsT = ts; }
   }
   requestAnimationFrame(loop);
 }
@@ -666,7 +676,10 @@ function draw() {
   // object-fit: cover mapping
   const vw = video.videoWidth, vh = video.videoHeight, cw = ov.width, ch = ov.height;
   const s = Math.max(cw / vw, ch / vh), ox = (cw - vw * s) / 2, oy = (ch - vh * s) / 2;
-  const P = i => [ox + lastPose[i].x * vw * s, oy + lastPose[i].y * vh * s];
+  // the skeleton is drawn a little ahead of the filtered position (velocity × predictMs): the detector + display pipeline
+  // is ~100 ms behind the real body, and this hides most of it. Counting never uses the predicted position.
+  const pr = SMOOTH.predictMs / 1000;
+  const P = i => { const q = lastPose[i], px = q.x + (q.vx || 0) * pr, py = q.y + (q.vy || 0) * pr; return [ox + px * vw * s, oy + py * vh * s]; };
   const cfg = curCfg();
   if (!workout) {   // selection mode: every reliably visible joint is a tap target; the chosen chain is drawn bold
     const vs = visibleSet(), set = new Set(vs);
@@ -1060,7 +1073,7 @@ function stepWorkout(wArg) {
   if (w.paused) { if (!w.backAt) w.backAt = now; if (now - w.backAt < 500) { $("repT").textContent = "다시 잡는 중…"; return; } w.paused = false; w.backAt = 0; w.angle = null; $("repT").textContent = `${w.reps.length}회 · 계속`; }
   w.lostAt = 0;
   const raw = bal ? bal.mean : jointAngle(A, B, C);
-  w.angle = w.angle == null ? raw : w.angle * 0.4 + raw * 0.6;   // light: landmarks are already smoothed
+  w.angle = w.angle == null ? raw : w.angle * 0.25 + raw * 0.75;   // very light: landmarks are already smoothed, more would add lag
   if (bal) {
     setGauge("bar", "바 수평", bal.bar * 100, { min: -40, max: 40, zero: 0, warn: 8, bad: 12, unit: "%", signed: true, sub: bal.bar > 0.03 ? "왼쪽 낮음" : bal.bar < -0.03 ? "오른쪽 낮음" : "수평" });
     setGauge("sh", "어깨 수평", bal.sh * 100, { min: -40, max: 40, zero: 0, warn: 8, bad: 12, unit: "%", signed: true });
@@ -1359,7 +1372,7 @@ async function exportDiag(s) {
   const out = { app: "렙 템포", version: APP_VERSION, exported: new Date().toISOString(), ua: navigator.userAgent,
                 exercise: s.exercise, label: labelOf(s), view: s.view, muscle: s.muscle, at: s.at,
                 cfg: { joints: cfg.joints, names: cfg.names, up: cfg.up, down: cfg.down, both: cfg.both, anchor: cfg.anchor, load: cfg.load },
-                ref: s.ref ? { min: s.ref.min, max: s.ref.max } : null, countdownSec, warnOn,
+                ref: s.ref ? { min: s.ref.min, max: s.ref.max } : null, countdownSec, warnOn, smoothing: SMOOTH, delegate: delegateUsed,
                 reps: s.reps, partial: s.partial, fps: dur ? +(fr.length / dur).toFixed(1) : null, durationSec: +dur.toFixed(1),
                 frameFormat: ["t_ms", "angle_smoothed", ...TRACK.flatMap(j => [`x${j}`, `y${j}`]), "side", "angle_raw", "min_visibility_pct", "state(0up/1mid/2down)"],
                 frames: fr };
@@ -1463,10 +1476,16 @@ function drawReplay() {
     g.strokeStyle = "rgba(96,165,250,.55)"; g.lineWidth = 7; g.lineCap = "round"; g.beginPath();
     chain(rf).forEach((j, q) => { const p = rel(rf, j); q ? g.lineTo(...p) : g.moveTo(...p); }); g.stroke();
   }
-  // paths of the two loaded joints over the selected range, anchored
+  // paths of the two loaded joints over the selected range, anchored. Cleaned for display: 5-point moving average, then
+  // points that moved less than a few pixels are dropped, so detector jitter does not draw little loops along the path.
+  const minStep = Math.max(2.5, Math.min(W, H) * 0.008);
   [0, 1].forEach(n => {
-    g.strokeStyle = colors[n]; g.lineWidth = 3; g.globalAlpha = .9; g.beginPath();
-    for (let i = from; i < to; i++) { const p = rel(fr[i], trace(fr[i])[n]); i === from ? g.moveTo(p[0], p[1]) : g.lineTo(p[0], p[1]); }
+    const pts = []; for (let i = from; i < to; i++) pts.push(rel(fr[i], trace(fr[i])[n]));
+    const smooth = pts.map((_, i) => { let x = 0, y = 0, k = 0; for (let j = Math.max(0, i - 2); j <= Math.min(pts.length - 1, i + 2); j++) { x += pts[j][0]; y += pts[j][1]; k++; } return [x / k, y / k]; });
+    const path = []; for (const p of smooth) { const l = path[path.length - 1]; if (!l || Math.hypot(p[0] - l[0], p[1] - l[1]) >= minStep) path.push(p); }
+    if (smooth.length && path[path.length - 1] !== smooth[smooth.length - 1]) path.push(smooth[smooth.length - 1]);
+    g.strokeStyle = colors[n]; g.lineWidth = 3; g.globalAlpha = .9; g.lineJoin = "round"; g.beginPath();
+    path.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]));
     g.stroke(); g.globalAlpha = 1;
   });
   // anchor marker
