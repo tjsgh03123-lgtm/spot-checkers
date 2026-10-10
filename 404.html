@@ -865,7 +865,7 @@ function endWorkout(reason) {
   if (w.cfg.auto) {
     const avgOf = k => { const v = r.map(x => x[k]).filter(Number.isFinite); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
     const mxOf = k => { const v = r.map(x => x[k]).filter(Number.isFinite); return v.length ? Math.max(...v) : null; };
-    let rows = `<div class="kv"><span>감지</span><b>${w.cfg.label}</b></div><div class="kv"><span>하중 → 고정</span><b>${w.cfg.names[w.cfg.load]} → ${w.cfg.names[w.cfg.anchor]}</b></div>`;
+    let rows = `<div class="kv"><span>감지</span><b>${w.cfg.label}</b></div>` + (w.autoRes ? `<div class="kv"><span>운동 구간</span><b>${w.autoRes.from.toFixed(0)}~${w.autoRes.to.toFixed(0)}초</b></div>` : "") + `<div class="kv"><span>하중 → 고정</span><b>${w.cfg.names[w.cfg.load]} → ${w.cfg.names[w.cfg.anchor]}</b></div>`;
     if (w.cfg.view === "side" && avgOf("pathDev") != null) rows += `<div class="kv"><span>경로 수직 이탈 (평균 / 최대)</span><b>${avgOf("pathDev")}% / ${mxOf("pathDev")}%</b></div><div class="kv"><span>경로 판정</span><b>${mxOf("pathDev") > 25 ? "앞뒤로 흔들림" : "수직에 가까움"}</b></div>`;
     if (w.cfg.view === "front" && avgOf("bar") != null) rows += `<div class="kv"><span>바 기울기 (평균 / 최대)</span><b>${avgOf("bar")}% / ${mxOf("bar")}%</b></div><div class="kv"><span>좌우 팔 각도 차 (평균 / 최대)</span><b>${avgOf("diff")}° / ${mxOf("diff")}°</b></div><div class="kv"><span>균형 판정</span><b>${mxOf("bar") > 12 || mxOf("diff") > 15 ? "한쪽 쏠림 있음" : "양호"}</b></div>`;
     if (w.cfg.view === "top" && avgOf("flareL") != null) rows += `<div class="kv"><span>팔꿈치 벌어짐 왼 / 오</span><b>${avgOf("flareL")}% / ${avgOf("flareR")}%</b></div><div class="kv"><span>팔꿈치 판정</span><b>${Math.abs(avgOf("flareL") - avgOf("flareR")) > 15 ? "좌우 비대칭" : "대칭"}</b></div>`;
@@ -1019,7 +1019,7 @@ async function analyzeFile(file) {
   const auto = $("anAuto").checked;
   const cfg = EX[exercise];
   const w = { cfg, reps: [], partial: 0, state: "up", pending: null, pendingN: 0, angle: null, tLeaveUp: 0, tEnterDown: 0, tLeaveDown: 0,
-              tLastRep: 0, minAngle: 180, maxAngle: 0, started: 0, armed: false, ready: true, frames: [], repStartFrame: 0, ref: auto ? null : refOf(exercise),
+              tLastRep: 0, minAngle: 180, maxAngle: 0, started: 0, armed: false, ready: true, frames: [], repStartFrame: 0, ref: null,   // clips are judged on their own, never against a reference
               clock: () => Math.round(v.currentTime * 1000), silent: true };
   an = { w, v, stop: false, auto, raw: [] };
   sm = null; lockedSide = null;
@@ -1065,7 +1065,7 @@ function finishAnalysis(file) {
   }
   $("anProg").hidden = true; $("anDone").hidden = false;
   $("anRes").textContent = `${w.cfg.label} ${w.reps.length}회` + (w.partial ? ` · 부분 ${w.partial}` : "") + ` · 영상 ${v.duration.toFixed(0)}초`
-    + (w.autoRes ? ` · 하중: ${w.cfg.names[w.cfg.load]} · 고정: ${w.cfg.names[w.cfg.anchor]} · 각도 ${w.autoRes.lo}~${w.autoRes.hi}°` : "");
+    + (w.autoRes ? ` · 하중: ${w.cfg.names[w.cfg.load]} · 고정: ${w.cfg.names[w.cfg.anchor]} · 각도 ${w.autoRes.lo}~${w.autoRes.hi}° · 운동 구간 ${w.autoRes.from.toFixed(0)}~${w.autoRes.to.toFixed(0)}초` : "");
 }
 $("anAutoBtn").onclick = () => { $("anAuto").checked = true; $("anAutoBtn").classList.add("on"); $("anManBtn").classList.remove("on"); };
 $("anManBtn").onclick = () => { $("anAuto").checked = false; $("anManBtn").classList.add("on"); $("anAutoBtn").classList.remove("on"); };
@@ -1088,8 +1088,8 @@ const labelOf = s => (s.cfg && s.cfg.label) || (EX[s.exercise] || {}).label || s
 const CH = { arm: [[11,12],[13,14],[15,16]], leg: [[23,24],[25,26],[27,28]] };
 const CHN = { arm: ["어깨","팔꿈치","손목"], leg: ["엉덩이","무릎","발목"] };
 function pct(arr, q) { const a = arr.filter(Number.isFinite).sort((x, y) => x - y); return a.length ? a[Math.min(a.length - 1, Math.floor(q * a.length))] : NaN; }
-function autoAnalyze(raw) {   // raw: [{t, L:[{x,y,v}×33]}]
-  if (raw.length < 20) return null;
+function autoAnalyze(rawIn) {   // raw: [{t, L:[{x,y,v}×33]}]
+  let raw = rawIn; if (raw.length < 20) return null;
   const vis = (L, i) => (L[i].v ?? 1) >= 0.5;
   const angOf = (L, ch, sd) => { const [a, b, c] = ch.map(p => L[p[sd]]); return ch.every(p => vis(L, p[sd])) ? jointAngle(a, b, c) : NaN; };
   // 1. which chain moves: angle range (5th→95th percentile) per chain and side
@@ -1117,6 +1117,14 @@ function autoAnalyze(raw) {   // raw: [{t, L:[{x,y,v}×33]}]
   const sm = []; let prev = null; for (const a of ser) { if (!Number.isFinite(a)) { sm.push(prev); continue; } prev = prev == null ? a : prev * 0.4 + a * 0.6; sm.push(prev); }
   const lo = pct(sm, 0.05), hi = pct(sm, 0.95), rng = hi - lo;
   const up = hi - 0.2 * rng, down = lo + 0.25 * rng;
+  // the exercise itself: from 1 s before the angle first leaves the top zone to 1 s after it last returns
+  let first = sm.findIndex(a => a != null && a < up), last = sm.length - 1;
+  while (last > 0 && !(sm[last] != null && sm[last] < up)) last--;
+  if (first < 0) return { error: "운동 동작을 찾지 못했습니다" };
+  const t0 = raw[first].t - 1000, t1 = raw[last].t + 1000;
+  let i0 = raw.findIndex(f => f.t >= t0), i1 = raw.length - 1; if (i0 < 0) i0 = 0;
+  while (i1 > i0 && raw[i1].t > t1) i1--;
+  raw = raw.slice(i0, i1 + 1); const smT = sm.slice(i0, i1 + 1); sm.length = 0; sm.push(...smT);
   const cfg = { joints: CH[kind], names: CHN[kind], label: (kind === "arm" ? "팔" : "다리") + (both ? " 양쪽" : side ? " 오른쪽" : " 왼쪽") + " · " + ({ side: "측면", front: "정면", top: "위에서" })[view],
                 up: Math.round(up), down: Math.round(down), anchor, load, both, auto: true, view, kind, trace: both ? null : [load, 1] };
   // frames in the live format
@@ -1162,7 +1170,7 @@ function autoAnalyze(raw) {   // raw: [{t, L:[{x,y,v}×33]}]
       r.flareL = flare(0); r.flareR = flare(1);
     }
   }
-  return { cfg, frames, reps, partial, view, kind, both, side, hi: Math.round(hi), lo: Math.round(lo) };
+  return { cfg, frames, reps, partial, view, kind, both, side, hi: Math.round(hi), lo: Math.round(lo), from: raw[0].t / 1000, to: raw[raw.length - 1].t / 1000 };
 }
 
 // ---------- history ----------
