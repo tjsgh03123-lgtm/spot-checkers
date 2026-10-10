@@ -129,6 +129,9 @@
   #pick { position: fixed; inset: 0; z-index: 20; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 16px) 16px 32px; overflow: auto;
     display: flex; flex-direction: column; gap: 10px; }
   .exCard.on { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+  #muscleRow { display: flex; flex-wrap: wrap; gap: 8px; }
+  #muscleRow button { padding: 10px 16px; font-size: 16px; border-radius: 999px; }
+  #muscleRow button.on { background: var(--accent); color: #0b0f14; font-weight: 800; }
   #analyze { position: fixed; inset: 0; z-index: 20; background: var(--bg); padding: calc(env(safe-area-inset-top,0px) + 16px) 16px 32px; overflow: auto;
     display: flex; flex-direction: column; gap: 14px; }
   .fileBtn { display: flex; justify-content: center; padding: 18px; border-radius: 14px; background: var(--accent); color: #0b0f14; font-weight: 800; font-size: 18px; }
@@ -195,7 +198,7 @@
     <h1>렙 템포</h1>
     <p>카메라로 횟수 · 가동범위 · 렙당 시간을 잽니다. 영상은 폰 밖으로 나가지 않습니다.</p>
   </div>
-  <select id="exercise" hidden><option value="auto">자동</option><option value="squat">스쿼트</option><option value="pushup">푸시업</option><option value="curl">덤벨 컬</option><option value="pulldown">랫풀다운</option></select>
+  <select id="exercise" hidden><option value="auto">자동</option><option value="squat">스쿼트</option><option value="pushup">푸시업</option><option value="curl">덤벨 컬</option><option value="pulldown">랫풀다운</option><option value="bench">벤치프레스</option><option value="shoulder">숄더프레스</option></select>
   <select id="facing" hidden><option value="environment">후면</option><option value="user">전면</option></select>
   <button class="card primary" id="pickBtn">
     <span class="ct">운동 시작</span>
@@ -309,11 +312,15 @@
 
 <div id="pick" hidden>
   <div class="hh"><button class="back" id="pickClose" aria-label="뒤로" style="position:static">←</button><h1>운동 선택</h1></div>
+  <div class="sub" style="margin:0;color:var(--muted)">주동근을 고르면 맞는 운동만 보여줍니다</div>
+  <div id="muscleRow"></div>
   <button class="card exCard" data-ex="auto"><span class="ct">직접 선택</span><span class="cs">전신 그림에서 추적할 관절 3개를 고름 (어떤 운동이든)</span></button>
   <button class="card exCard" data-ex="squat"><span class="ct">스쿼트</span><span class="cs">엉덩이·무릎·발목 · 측면 45°</span></button>
   <button class="card exCard" data-ex="pushup"><span class="ct">푸시업</span><span class="cs">어깨·팔꿈치·손목 · 측면, 폰 바닥 가까이</span></button>
   <button class="card exCard" data-ex="curl"><span class="ct">덤벨 컬</span><span class="cs">어깨·팔꿈치·손목 · 정면</span></button>
   <button class="card exCard" data-ex="pulldown"><span class="ct">랫풀다운</span><span class="cs">양팔 어깨·팔꿈치·손목 · 정면 · 바 균형</span></button>
+  <button class="card exCard" data-ex="bench"><span class="ct">벤치프레스</span><span class="cs">어깨·팔꿈치·손목 · 측면 (팔꿈치 각도로 횟수)</span></button>
+  <button class="card exCard" data-ex="shoulder"><span class="ct">숄더프레스</span><span class="cs">어깨·팔꿈치·손목 · 정면</span></button>
   <p class="sub" id="pickTip" style="color:var(--muted);margin:0"></p>
   <button class="card primary" id="start" style="margin-top:auto"><span class="ct">카메라 켜기</span><span class="cs" id="startSub">선택한 운동으로 시작</span></button>
   <p id="setupErr" style="color:var(--bad);margin:0"></p>
@@ -362,6 +369,8 @@ const EX = {
   curl:   { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y",   tip: "정면", up: 150, down: 60, label: "덤벨 컬", anchor: 0 },
   // both arms are loaded: rep angle = mean of both elbows, plus bar level / shoulder level / arm symmetry
   pulldown: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y", tip: "정면, 양팔 다 보이게", up: 150, down: 95, label: "랫풀다운", anchor: 0, both: true },
+  bench:    { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.25, 0.75], axis: "y",   tip: "측면", up: 150, down: 90, label: "벤치프레스", anchor: 0 },
+  shoulder: { joints: [[11,12],[13,14],[15,16]], names: ["어깨","팔꿈치","손목"], span: [0.30, 0.75], axis: "y",   tip: "정면", up: 160, down: 90, label: "숄더프레스", anchor: 0 },
   // auto: the 10 s warm-up decides which joints move; until then every joint that is reliably in frame is tracked
   auto: { joints: null, names: [], span: [0, 1], axis: "y", tip: "화면에서 관절 3개 터치", up: 160, down: 100, label: "직접 선택", anchor: 0, auto: true },
 };
@@ -1032,7 +1041,7 @@ function endWorkout(reason) {
       <div class="kv"><span>균형 판정</span><b>${mx("bar") > 12 || mx("diff") > 15 ? "한쪽 쏠림 있음" : "양호"}</b></div>`;
   }
   const sessions = JSON.parse(LS("sessions") || "[]");
-  lastSession = { exercise: w.exKey || (w.cfg.auto ? "auto" : exercise), at: new Date().toISOString(), reps: r, partial: w.partial, frames: w.frames, started: w.started,
+  lastSession = { exercise: w.exKey || (w.cfg.auto ? "auto" : exercise), muscle: muscle !== "all" ? muscle : undefined, at: new Date().toISOString(), reps: r, partial: w.partial, frames: w.frames, started: w.started,
                   ref: w.ref ? { min: w.ref.min, max: w.ref.max, frames: w.ref.frames } : null,
                   cfg: w.cfg.auto ? { joints: w.cfg.joints, names: w.cfg.names, label: w.cfg.label, anchor: w.cfg.anchor, load: w.cfg.load, both: w.cfg.both, auto: true, view: w.cfg.view, kind: w.cfg.kind, trace: w.cfg.trace } : undefined };
   if (w.cfg.auto) {
@@ -1375,7 +1384,7 @@ function renderHistory() {
       delta = `<div class="delta ${cls}">직전 세트 대비: 횟수 ${dr >= 0 ? "+" : ""}${dr} · 평균 렙 ${dt >= 0 ? "+" : ""}${dt.toFixed(1)}s</div>`;
     }
     html += `<div class="ses" data-i="${all.indexOf(s)}">
-      <div class="h1"><b>${labelOf(s)} ${n}회${s.analyzed ? " · 영상 분석" : ""}</b><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
+      <div class="h1"><b>${labelOf(s)} ${n}회${s.muscle ? " · " + muscleLabel(s.muscle) : ""}${s.analyzed ? " · 영상 분석" : ""}</b><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
       <div class="h2"><span>평균 <b>${avg.toFixed(1)}s</b></span><span>최빠 <b>${tots[fi].toFixed(1)}s</b></span><span>최느 <b>${tots[si].toFixed(1)}s</b></span>${s.partial ? `<span>부분 <b>${s.partial}</b></span>` : ""}</div>
       ${delta}
       ${s.frames && s.frames.length ? `<button class="rpOpen" data-i="${all.indexOf(s)}" style="flex:0;padding:8px 14px;font-size:14px">${s.hasClip ? "영상 · 동선 보기" : "동선 보기"}</button>` : ""}
@@ -1394,8 +1403,33 @@ function renderHome() {
   $("histSub").textContent = n ? `저장된 세트 ${n}개` : "아직 기록 없음";
   $("setSub").textContent = ($("facing").value === "user" ? "전면" : "후면") + " 카메라 · 음성 " + (voiceOn ? "켜짐" : "꺼짐");
 }
+// prime mover → exercises that train it (the tracked joints come from each exercise's own config)
+const MUSCLES = [
+  { id: "all", label: "전체", ex: null },
+  { id: "chest", label: "가슴", ex: ["bench", "pushup"] },
+  { id: "back", label: "등", ex: ["pulldown"] },
+  { id: "shoulder", label: "어깨", ex: ["shoulder"] },
+  { id: "biceps", label: "이두", ex: ["curl"] },
+  { id: "triceps", label: "삼두", ex: ["pushup", "bench", "shoulder"] },
+  { id: "legs", label: "하체", ex: ["squat"] },
+];
+let muscle = LS("muscle") || "all";
+if (!MUSCLES.some(m => m.id === muscle)) muscle = "all";
+const muscleLabel = id => (MUSCLES.find(m => m.id === id) || {}).label || "";
+function renderMuscles() {
+  $("muscleRow").innerHTML = MUSCLES.map(m => `<button data-m="${m.id}" class="${m.id === muscle ? "on" : ""}">${m.label}</button>`).join("");
+  $("muscleRow").querySelectorAll("button").forEach(b => b.onclick = () => {
+    muscle = b.dataset.m; SS("muscle", muscle);
+    const list = MUSCLES.find(m => m.id === muscle).ex;
+    if (list && exercise !== "auto" && !list.includes(exercise)) { $("exercise").value = list[0]; SS("exercise", list[0]); }
+    renderPick();
+  });
+}
 function renderPick() {
   exercise = $("exercise").value;
+  renderMuscles();
+  const allowed = MUSCLES.find(m => m.id === muscle).ex;
+  $("pick").querySelectorAll(".exCard").forEach(b => { b.hidden = !!allowed && b.dataset.ex !== "auto" && !allowed.includes(b.dataset.ex); });
   $("pick").querySelectorAll(".exCard").forEach(b => b.classList.toggle("on", b.dataset.ex === exercise));
   $("pickTip").textContent = EX[exercise].label + " · " + EX[exercise].tip + (refOf(exercise) ? ` · 기준 궤적 있음 (최저 ${refOf(exercise).min}°)` : " · 기준 궤적 없음 (10초 측정 때 저장)");
   $("startSub").textContent = EX[exercise].label + "로 시작";
