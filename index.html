@@ -189,7 +189,7 @@
     <h1>렙 템포</h1>
     <p>카메라로 횟수 · 가동범위 · 렙당 시간을 잽니다. 영상은 폰 밖으로 나가지 않습니다.</p>
   </div>
-  <select id="exercise" hidden><option value="squat">스쿼트</option><option value="pushup">푸시업</option><option value="curl">덤벨 컬</option><option value="pulldown">랫풀다운</option></select>
+  <select id="exercise" hidden><option value="auto">자동</option><option value="squat">스쿼트</option><option value="pushup">푸시업</option><option value="curl">덤벨 컬</option><option value="pulldown">랫풀다운</option></select>
   <select id="facing" hidden><option value="environment">후면</option><option value="user">전면</option></select>
   <button class="card primary" id="pickBtn">
     <span class="ct">운동 시작</span>
@@ -227,11 +227,6 @@
     <button id="wipeBtn">모든 기록 지우기</button>
     <p class="sub" id="wipeMsg">기록은 이 폰의 브라우저에만 저장됩니다.</p>
   </div>
-</div>
-  <button class="primary" id="start">시작 (카메라 · 센서 권한 허용)</button>
-  <button id="histBtn">기록 보기</button>
-  <p id="setupErr" style="color:var(--bad)"></p>
-  <p id="ctx" style="font-size:12px"></p>
 </div>
 
 <div id="stage" hidden>
