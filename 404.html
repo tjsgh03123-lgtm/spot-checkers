@@ -313,8 +313,9 @@
 <div id="analyze" hidden>
   <div class="hh"><button class="back" id="anClose" aria-label="뒤로" style="position:static">←</button><h1>영상 분석</h1></div>
   <p class="sub" style="margin:0;color:var(--muted);line-height:1.5">운동 영상을 고르면 같은 방식으로 관절을 추적해 횟수, 렙당 시간, 궤적을 뽑습니다. 영상은 폰 밖으로 나가지 않습니다. 운동 종류는 홈에서 고른 것(<b id="anEx"></b>)을 씁니다.</p>
-  <label class="fileBtn"><input type="file" id="anFile" accept="video/mp4,video/webm,video/quicktime,video/3gpp,.mp4,.webm,.mov,.3gp" hidden><span>갤러리에서 영상 선택</span></label>
-  <p class="sub" style="margin:-6px 0 0;color:var(--muted);font-size:13px">선택 창에서 "카메라"가 뜨면 "갤러리" 또는 "파일"을 고르세요.</p>
+  <label class="fileBtn"><input type="file" id="anFile" accept="video/*,image/*" hidden><span>갤러리에서 영상 선택</span></label>
+  <p class="sub" style="margin:-6px 0 0;color:var(--muted);font-size:13px">선택 창에서 "갤러리"를 고르세요. 갤러리가 없으면 "내 파일 → 동영상"에서 골라도 됩니다.</p>
+  <p class="sub" id="anErr" style="margin:-6px 0 0;color:var(--bad);font-size:14px"></p>
   <div class="setBlock" id="anProg" hidden>
     <div class="pb"><div class="pbIn" id="anBar"></div></div>
     <div class="sub" id="anStat">준비 중…</div>
@@ -1048,7 +1049,12 @@ function finishAnalysis(file) {
 }
 $("anBtn").onclick = () => { $("anEx").textContent = EX[exercise].label; $("anProg").hidden = true; $("anDone").hidden = true; $("analyze").hidden = false; pushScreen("analyze"); };
 $("anClose").onclick = () => goBack();
-$("anFile").onchange = () => { const f = $("anFile").files[0]; $("anFile").value = ""; analyzeFile(f); };
+$("anFile").onchange = () => {
+  const f = $("anFile").files[0]; $("anFile").value = ""; $("anErr").textContent = "";
+  if (!f) return;
+  if (!(f.type.startsWith("video/") || /\.(mp4|webm|mov|3gp|m4v)$/i.test(f.name))) { $("anErr").textContent = "영상 파일이 아닙니다. 갤러리에서 동영상을 골라주세요."; return; }
+  analyzeFile(f);
+};
 $("anCancel").onclick = () => { if (an) { an.stop = true; try { an.v.pause(); } catch {} an = null; } $("anProg").hidden = true; };
 $("anSummary").onclick = () => { if (lastSession) $("summary").hidden = false; };
 $("anReplay").onclick = () => { if (lastSession) openReplay(lastSession); };
