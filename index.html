@@ -286,7 +286,7 @@
     <div class="rows" id="sumList"></div>
     <div class="sub">↓하강 · ■정지 · ↑상승 · 최저 각도</div>
     <div class="rows" id="sumRows"></div>
-    <button id="replayBtn" class="primary" style="flex:0;padding:12px 24px">동선 보기</button>
+    <div class="row" style="justify-content:center"><button id="replayBtn" class="primary" style="flex:0;padding:12px 24px">동선 보기</button><button id="diagBtn" style="flex:0;padding:12px 18px">진단 파일</button></div>
     <button class="xclose" id="sumClose">✕ 닫기</button>
     <div class="sub">다음 세트: 스위치 ON → 카운트다운 → 동작</div>
   </div>
@@ -385,6 +385,7 @@ let visionMod = null;
 async function vision() { if (!visionMod) visionMod = await import(VISION_URL); return visionMod; }
 
 const $ = id => document.getElementById(id);
+const APP_VERSION = "2026-10-11a";   // bump when the counting logic changes, so a diagnostics file says which logic produced it
 // Only the joints the rep counter needs must be in frame. Head or feet may be cut off.
 // joints: landmark ids (L/R pairs); one side visible is enough. span: how much of the frame those joints should cover.
 // angle: the three joints (A-B-C, angle at B) the rep counter watches. up/down: angle thresholds for the two states.
@@ -498,7 +499,7 @@ const SS = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 
 let exercise = "squat", heightCm = 175, facing = "environment", deviceId = null, cams = [], camIdx = -1;
 let tilt = null, roll = 0, tiltState = "bad";
-let lastPose = null, bodyFrac = 0, fullOk = false, distM = null;
+let lastPose = null, rawPose = null, bodyFrac = 0, fullOk = false, distM = null;
 let landmarker, video = $("cam"), ov = $("ov"), ctx = ov.getContext("2d");
 
 // ---------- tilt ----------
@@ -647,7 +648,8 @@ function loop() {
     if (ts !== lastTs) {
       lastTs = ts;
       const res = landmarker.detectForVideo(video, ts);
-      lastPose = smoothPose(res.landmarks && res.landmarks[0] ? res.landmarks[0] : null, Date.now());
+      rawPose = res.landmarks && res.landmarks[0] ? res.landmarks[0] : null;
+      lastPose = smoothPose(rawPose, Date.now());
       updateVisible(lastPose);
       if (capture && capture.raw && lastPose) capture.raw.push({ t: Date.now() - capture.started, L: lastPose.map(q => ({ x: q.x, y: q.y, v: q.visibility ?? 1 })) });
       draw();
@@ -1006,6 +1008,11 @@ function recordFrame(w, now) {
   const f = [now - w.started, Math.round(w.angle)];
   for (const i of TRACK) { const p = lastPose[i]; f.push(Math.round(p.x * 1000), Math.round(p.y * 1000)); }
   f.push(w.side || 0);
+  // diagnostics (after the side slot, so replay is unaffected): raw (unsmoothed) angle, lowest visibility of the 3 joints, state 0 up / 1 mid / 2 down
+  const sd = w.side || 0, J = w.cfg.joints ? w.cfg.joints.map(p => p[sd]) : null;
+  const rawA = J && rawPose ? jointAngle(rawPose[J[0]], rawPose[J[1]], rawPose[J[2]]) : null;
+  const vis = J ? Math.min(...J.map(i => lastPose[i].visibility ?? 1)) : 1;
+  f.push(rawA == null ? -1 : Math.round(rawA), Math.round(vis * 100), w.state === "up" ? 0 : w.state === "mid" ? 1 : 2);
   w.frames.push(f);
   if (w.frames.length > 20000) w.frames.shift();
 }
@@ -1345,6 +1352,24 @@ function endWorkout(reason) {
 }
 $("swWorkout").onchange = () => { if ($("swWorkout").checked) { if (!workout) startWorkout(false); } else if (workout) endWorkout("스위치"); };
 $("replayBtn").onclick = e => { e.stopPropagation(); if (lastSession) openReplay(lastSession); };
+// ---------- diagnostics export: everything needed to re-run the rep counter offline (frames, thresholds, reps, fps) ----------
+async function exportDiag(s) {
+  const fr = s.frames || [], dur = fr.length > 1 ? (fr[fr.length - 1][0] - fr[0][0]) / 1000 : 0;
+  const cfg = cfgOf(s);
+  const out = { app: "렙 템포", version: APP_VERSION, exported: new Date().toISOString(), ua: navigator.userAgent,
+                exercise: s.exercise, label: labelOf(s), view: s.view, muscle: s.muscle, at: s.at,
+                cfg: { joints: cfg.joints, names: cfg.names, up: cfg.up, down: cfg.down, both: cfg.both, anchor: cfg.anchor, load: cfg.load },
+                ref: s.ref ? { min: s.ref.min, max: s.ref.max } : null, countdownSec, warnOn,
+                reps: s.reps, partial: s.partial, fps: dur ? +(fr.length / dur).toFixed(1) : null, durationSec: +dur.toFixed(1),
+                frameFormat: ["t_ms", "angle_smoothed", ...TRACK.flatMap(j => [`x${j}`, `y${j}`]), "side", "angle_raw", "min_visibility_pct", "state(0up/1mid/2down)"],
+                frames: fr };
+  const name = `reptempo-diag-${(s.at || "").replace(/[:.]/g, "-").slice(0, 19)}.json`;
+  const blob = new Blob([JSON.stringify(out)], { type: "application/json" });
+  try { const file = new File([blob], name, { type: "application/json" }); if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+$("diagBtn").onclick = e => { e.stopPropagation(); if (lastSession) exportDiag(lastSession); };
 let lastSession = null;
 
 // ---------- replay: skeleton animation + joint path, with the reference rep as a ghost ----------
@@ -1671,13 +1696,14 @@ function renderHistory() {
       ${delta}
       ${s.side ? `<div class="h2" style="flex-wrap:wrap">${sideSummaryRows(r, s.side.sel).replace(/<div class="kv"><span>([^<]*)<\/span><b>([^<]*)<\/b><\/div>/g, "<span>$1 <b>$2</b></span>")}</div>` : ""}
       ${s.back ? `<div class="h2" style="flex-wrap:wrap">${backSummaryRows(r, s.back.sel, s.back.view).replace(/<div class="kv"><span>([^<]*)<\/span><b>([^<]*)<\/b><\/div>/g, "<span>$1 <b>$2</b></span>")}</div>` : ""}
-      ${s.frames && s.frames.length ? `<button class="rpOpen" data-i="${all.indexOf(s)}" style="flex:0;padding:8px 14px;font-size:14px">${s.hasClip ? "영상 · 동선 보기" : "동선 보기"}</button>` : ""}
+      ${s.frames && s.frames.length ? `<div class="row"><button class="rpOpen" data-i="${all.indexOf(s)}" style="flex:0;padding:8px 14px;font-size:14px">${s.hasClip ? "영상 · 동선 보기" : "동선 보기"}</button><button class="dgOpen" data-i="${all.indexOf(s)}" style="flex:0;padding:8px 14px;font-size:14px">진단 파일</button></div>` : ""}
       <div class="detail">${r.map((x, i) => `<div class="rr ${i === fi ? "fast" : i === si ? "slow" : ""}"><span class="no">${x.n}</span><b>${repTot(x).toFixed(1)}s</b><span class="seg">↓${x.down.toFixed(1)} · ■${x.hold.toFixed(1)} · ↑${x.up.toFixed(1)}${s.back ? " · " + backRepText(x, s.back.sel) : ""}${s.side ? " · " + sideRepText(x, s.side.sel) : ""}</span><span class="min">${x.min}°</span></div>`).join("")}</div>
     </div>`;
   }
   list.innerHTML = html;
   list.querySelectorAll(".ses").forEach(el => el.onclick = () => el.classList.toggle("open"));
   list.querySelectorAll(".rpOpen").forEach(b => b.onclick = e => { e.stopPropagation(); openReplay(all[+b.dataset.i]); });
+  list.querySelectorAll(".dgOpen").forEach(b => b.onclick = e => { e.stopPropagation(); exportDiag(all[+b.dataset.i]); });
 }
 $("histBtn").onclick = () => { renderHistory(); $("hist").hidden = false; pushScreen("hist"); };
 // home: exercise chips + settings panel
