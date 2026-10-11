@@ -387,7 +387,7 @@ let visionMod = null;
 async function vision() { if (!visionMod) visionMod = await import(VISION_URL); return visionMod; }
 
 const $ = id => document.getElementById(id);
-const APP_VERSION = "2026-10-11d";   // bump when the counting logic changes, so a diagnostics file says which logic produced it
+const APP_VERSION = "2026-10-11e";   // bump when the counting logic changes, so a diagnostics file says which logic produced it
 // Only the joints the rep counter needs must be in frame. Head or feet may be cut off.
 // joints: landmark ids (L/R pairs); one side visible is enough. span: how much of the frame those joints should cover.
 // angle: the three joints (A-B-C, angle at B) the rep counter watches. up/down: angle thresholds for the two states.
@@ -1122,7 +1122,15 @@ function stepWorkout(wArg) {
   recordFrame(w, now);
   // with a reference rep, "down" means reaching 85% of the personal depth
   const downThr = w.ref ? w.ref.max - (w.ref.max - w.ref.min) * 0.85 : cfg.down;
-  const target = ang > cfg.up ? "up" : ang < downThr ? "down" : "mid";
+  let target = ang > cfg.up ? "up" : ang < downThr ? "down" : "mid";
+  // turnaround = top: after the bottom, if the angle climbs past softUp and then turns back down, the rep is over even if it
+  // never reached cfg.up (a curl that extends to 140° instead of 150°, a squat whose lockout is a little soft). Without this
+  // the counter waits in "mid" and the next rep merges into this one.
+  if (w.state === "mid" && w.tLeaveDown && target === "mid") {
+    w.postMax = Math.max(w.postMax || 0, ang);
+    const softUp = downThr + (cfg.up - downThr) * TURN.frac;
+    if (w.postMax >= softUp && ang <= w.postMax - TURN.drop) { target = "up"; w.pending = "up"; w.pendingN = 3; }
+  }
   // debounce: a new state must hold 3 frames
   if (target === w.pending) w.pendingN++; else { w.pending = target; w.pendingN = 1; }
   if (w.pendingN < 3 || target === w.state) {
@@ -1135,7 +1143,7 @@ function stepWorkout(wArg) {
     if (!refMode) { $("repSub").textContent = w.cfg.label; $("msg").textContent = "운동 중. 스위치를 끄면 세트를 끝냅니다."; }
   }
   if (prev === "up" && target === "mid") { w.tLeaveUp = now; w.minAngle = ang; w.repStartFrame = w.frames.length; $("repT").textContent = "내려가는 중"; }
-  else if (target === "down") { if (!w.tEnterDown || prev !== "down") w.tEnterDown = now; $("repT").textContent = "바닥"; }
+  else if (target === "down") { if (!w.tEnterDown || prev !== "down") w.tEnterDown = now; w.postMax = 0; $("repT").textContent = "바닥"; }
   else if (prev === "down" && target === "mid") { w.tLeaveDown = now; $("repT").textContent = "올라오는 중"; }
   else if (target === "up" && prev !== "up") {
     if (w.tEnterDown && w.tLeaveDown && w.tEnterDown >= w.tLeaveUp) {
@@ -1166,11 +1174,12 @@ function stepWorkout(wArg) {
     } else if (w.tLeaveUp) {
       $("repT").textContent = w.reps.length ? `${w.reps.length}회 · 다음 렙` : "동작을 시작하면 자동으로 셉니다";   // standing sway, ignore
     }
-    w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180; if (w.back) w.back.rep = null; if (w.sideM) w.sideM.rep = null;
+    w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180; w.postMax = 0; if (w.back) w.back.rep = null; if (w.sideM) w.sideM.rep = null;
   }
 }
 // velocity-based phase split of one rep (frames = [t_ms, angle, ...]). vThr = deg/s below which the joint counts as not moving.
 const PHASE = { vThr: 25 };
+const TURN = { frac: 0.6, drop: 12 };   // top turnaround: must climb past down + 60% of the up-down span, then fall back 12°
 function phaseTimes(frames, f0, f1) {
   const n = f1 - f0; if (n < 5) return null;
   const t = i => frames[i][0] / 1000, a = i => frames[i][1];
