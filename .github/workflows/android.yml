@@ -43,9 +43,18 @@ jobs:
       - name: Generate the Android project from twa-manifest.json
         run: bubblewrap update --manifest ./twa-manifest.json --skipVersionUpgrade
       - name: Build APK + AAB
-        run: bubblewrap build --skipPwaValidation --manifest ./twa-manifest.json
+        run: |
+          set -o pipefail
+          bubblewrap build --skipPwaValidation --manifest ./twa-manifest.json 2>&1 | tee build.log
       - name: List outputs
-        run: ls -la *.apk *.aab || ls -la
+        if: always()
+        run: ls -la >> build.log; ls -la *.apk *.aab >> build.log 2>&1 || true
+      - name: Push build log to the ci-logs branch (readable without the Actions UI)
+        if: always()
+        run: |
+          mkdir -p /tmp/cilog && cp build.log /tmp/cilog/ && cd /tmp/cilog
+          git init -q && git config user.name ci && git config user.email ci@ci && git add . && git commit -qm "build log $GITHUB_RUN_ID"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" HEAD:ci-logs
       - name: SHA-256 fingerprint → assetlinks.json
         run: |
           FP=$(keytool -list -v -keystore android.keystore -alias onemore -storepass "$BUBBLEWRAP_KEYSTORE_PASSWORD" | grep 'SHA256:' | sed 's/.*SHA256: //')
