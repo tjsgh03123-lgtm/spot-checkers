@@ -249,6 +249,7 @@
   <div class="hh"><button class="back" id="settingsClose" aria-label="뒤로" style="position:static">←</button><h1>설정</h1></div>
   <div class="setRow"><span>카메라</span><div class="seg" id="segFacing"><button data-v="environment" class="on">후면</button><button data-v="user">전면</button></div></div>
   <div class="setRow"><span>음성 안내</span><div class="seg" id="segVoice"><button data-v="1" class="on">켜짐</button><button data-v="0">꺼짐</button></div></div>
+  <div class="setRow"><span>관절 모델</span><div class="seg" id="segModel"><button data-v="full" class="on">정밀</button><button data-v="lite">빠름</button></div></div>
   <div class="setRow"><span>카메라 화면 맞춤</span><div class="seg" id="segFit"><button data-v="contain" class="on">전체 보기</button><button data-v="cover">꽉 채움</button></div></div>
   <div class="setRow"><span>합장으로 세트 종료</span><div class="seg" id="segClap"><button data-v="1">켜짐</button><button data-v="0" class="on">꺼짐</button></div></div>
   <div class="setRow"><span>기울기 초록 범위</span><b>80~95°</b></div>
@@ -389,7 +390,7 @@ let visionMod = null;
 async function vision() { if (!visionMod) visionMod = await import(VISION_URL); return visionMod; }
 
 const $ = id => document.getElementById(id);
-const APP_VERSION = "2026-10-12a";   // bump when the counting logic changes, so a diagnostics file says which logic produced it
+const APP_VERSION = "2026-10-12b";   // bump when the counting logic changes, so a diagnostics file says which logic produced it
 // Only the joints the rep counter needs must be in frame. Head or feet may be cut off.
 // joints: landmark ids (L/R pairs); one side visible is enough. span: how much of the frame those joints should cover.
 // angle: the three joints (A-B-C, angle at B) the rep counter watches. up/down: angle thresholds for the two states.
@@ -623,13 +624,20 @@ function announce(allOk, tiltSt, bodyOk, sizeSt, hintBody, hintSize) {
   if (tone !== lastTone) { beep(tone === "ok" ? 880 : tone === "warn" ? 520 : 300, tone === "ok" ? 140 : 90, tone === "ok" ? 2 : 1); lastTone = tone; }
   say(text, { every: tone === "ok" ? 15000 : 4000 });
 }
+// pose model: "full" is noticeably more accurate on arms / wrists (what a curl depends on), "lite" is faster
+const MODELS = { lite: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+                 full: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task" };
+let modelTier = MODELS[LS("model")] ? LS("model") : "full", loadedTier = "";
 async function loadPose() {
+  if (landmarker && loadedTier === modelTier) return;
   const { PoseLandmarker, FilesetResolver } = await vision();
   const vision_ = await FilesetResolver.forVisionTasks(VISION_URL + "/wasm");
-  const opts = d => ({ baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task", delegate: d },
-    runningMode: "VIDEO", numPoses: 1 });
+  const opts = d => ({ baseOptions: { modelAssetPath: MODELS[modelTier], delegate: d }, runningMode: "VIDEO", numPoses: 1 });
+  const old = landmarker; landmarker = null;
   try { landmarker = await PoseLandmarker.createFromOptions(vision_, opts("GPU")); delegateUsed = "GPU"; }
   catch { landmarker = await PoseLandmarker.createFromOptions(vision_, opts("CPU")); delegateUsed = "CPU"; }   // some phones/browsers have no WebGL for the GPU delegate
+  loadedTier = modelTier; sm = null;
+  try { if (old) old.close(); } catch {}
 }
 let liveSide = 0;   // which side (0 = left ids, 1 = right ids) the analysis is using right now
 let lockedSide = null, sideVotes = [0, 0], sideLostSince = 0;   // side chosen during the spot test, kept for the whole set
@@ -638,6 +646,36 @@ let lockedSide = null, sideVotes = [0, 0], sideLostSince = 0;   // side chosen d
 // with almost no lag while a joint at rest is filtered hard and stops trembling. Frame-rate aware (uses the real dt).
 // Tuning lives here: minCutoff = how still a resting joint is (lower = calmer, more lag at slow speeds);
 // beta = how fast the filter opens up with speed (higher = less lag); deadband = ignore sub-pixel noise at rest (normalized units).
+// bone-length guard: a limb segment cannot shrink below / grow beyond its learned length. When the detector throws the
+// wrist toward the elbow (forearm length collapses to a third), that joint is rejected for the frame and held instead.
+const BONE = { minFrac: 0.55, maxFrac: 1.3, learnUp: 0.25, learnDown: 0.02, holdMaxMs: 400 };   // ref = the limb's full (un-foreshortened) length: learned fast upward, slowly downward
+const LIMBS = [[11, 13], [13, 15], [12, 14], [14, 16], [23, 25], [25, 27], [24, 26], [26, 28]];   // parent → child, applied in this order
+const boneRef = {}, boneHeld = {};
+function boneGuard(raw, now) {
+  const out = raw.map(p => ({ x: p.x, y: p.y, z: p.z, visibility: p.visibility ?? 1 }));
+  // hand = mean of wrist, index and pinky when all three are seen: a dumbbell hand is a tight cluster and the mean is calmer than the wrist alone
+  for (const [w, a, b] of [[15, 19, 17], [16, 20, 18]]) {
+    const P = raw[w], A = raw[a], B = raw[b];
+    if ((P.visibility ?? 1) >= 0.5 && (A.visibility ?? 1) >= 0.5 && (B.visibility ?? 1) >= 0.5 && Math.hypot(A.x - P.x, A.y - P.y) < 0.08 && Math.hypot(B.x - P.x, B.y - P.y) < 0.08) {
+      out[w].x = (P.x + A.x + B.x) / 3; out[w].y = (P.y + A.y + B.y) / 3;
+    }
+  }
+  for (const [a, b] of LIMBS) {
+    const P = out[a], C = out[b], key = a + "-" + b;
+    if (P.visibility < 0.5 || C.visibility < 0.5) continue;
+    const len = Math.hypot(C.x - P.x, C.y - P.y), ref = boneRef[key];
+    if (ref == null) { boneRef[key] = len; continue; }
+    const frac = len / ref;
+    if (frac < BONE.minFrac || frac > BONE.maxFrac) {
+      if (!boneHeld[key]) boneHeld[key] = now;
+      if (now - boneHeld[key] < BONE.holdMaxMs) { C.glitch = true; continue; }   // hold the child joint for a while...
+      if (frac > BONE.maxFrac) boneRef[key] = len;   // ...then accept: a persistently longer limb means the reference was too short
+      continue;                                       // (a persistently shorter one is foreshortening: accept without touching the reference)
+    } else boneHeld[key] = 0;
+    boneRef[key] = len > ref ? ref + BONE.learnUp * (len - ref) : frac >= 0.8 ? ref + BONE.learnDown * (len - ref) : ref;
+  }
+  return out;
+}
 const SMOOTH = { minCutoff: 0.6, beta: 8, dCutoff: 1.5, deadband: 0.002, holdMs: 500, predictMs: 70,
                  jumpMax: 0.08, jumpFrames: 2 };   // a joint that leaps > 8% of the frame in one step while it was slow is a detector glitch: hold it up to 2 frames   // predictMs: display-only look-ahead that cancels the detector's own delay
 let sm = null, smT = 0, delegateUsed = "";
@@ -647,8 +685,10 @@ function smoothPose(raw, now) {
   const dt = Math.min(0.2, Math.max(0.008, (now - smT) / 1000)); smT = now;
   const alpha = fc => { const tau = 1 / (2 * Math.PI * fc); return 1 / (1 + tau / dt); };
   const aD = alpha(SMOOTH.dCutoff);
+  raw = boneGuard(raw, now);
   for (let i = 0; i < raw.length; i++) {
     const p = raw[i], q = sm[i], v = p.visibility ?? 1;
+    if (p.glitch) continue;   // bone guard rejected this joint for this frame: keep the filtered position
     if (v < 0.4 && q.visibility >= 0.4) { if (!q.lostAt) q.lostAt = now; if (now - q.lostAt < SMOOTH.holdMs) continue; }   // dropout: hold, don't jump
     q.lostAt = 0;
     let dx = p.x - q.x, dy = p.y - q.y;
@@ -679,7 +719,7 @@ function loop() {
       draw();
       if (workout) { stepWorkout(); clapToEnd(Date.now()); } else { analyze(); if (capture && capture.cfg.joints) stepWorkout(capture); }
     }
-    frames++; if (ts - fpsT > 1000) { $("fps").textContent = frames + " fps" + (delegateUsed ? " · " + delegateUsed : ""); frames = 0; fpsT = ts; }
+    frames++; if (ts - fpsT > 1000) { $("fps").textContent = frames + " fps" + (delegateUsed ? " · " + delegateUsed : "") + (loadedTier === "full" ? " · 정밀" : " · 빠름"); frames = 0; fpsT = ts; }
   }
   requestAnimationFrame(loop);
 }
@@ -1388,7 +1428,7 @@ async function exportDiag(s) {
   const out = { app: "원 모어 (One More)", version: APP_VERSION, exported: new Date().toISOString(), ua: navigator.userAgent,
                 exercise: s.exercise, label: labelOf(s), view: s.view, muscle: s.muscle, at: s.at,
                 cfg: { joints: cfg.joints, names: cfg.names, up: cfg.up ?? (EX[s.exercise] || {}).up, down: cfg.down ?? (EX[s.exercise] || {}).down, both: cfg.both, anchor: cfg.anchor, load: cfg.load },
-                weight: s.weight, smoothing: SMOOTH, delegate: delegateUsed,
+                weight: s.weight, smoothing: SMOOTH, bone: BONE, delegate: delegateUsed, model: loadedTier,
                 reps: s.reps, partial: s.partial, fps: dur ? +(fr.length / dur).toFixed(1) : null, durationSec: +dur.toFixed(1),
                 frameFormat: ["t_ms", "angle_smoothed", ...TRACK.flatMap(j => [`x${j}`, `y${j}`]), "side", "angle_raw", "min_visibility_pct", "state(0up/1mid/2down)"],
                 frames: fr };
@@ -1814,6 +1854,7 @@ function renderSettings() {
   $("segClap").querySelectorAll("button").forEach(b => b.classList.toggle("on", (b.dataset.v === "1") === clapOn));
 
   $("segFit").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === fitMode));
+  $("segModel").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === modelTier));
   $("segFacing").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === $("facing").value));
   $("segVoice").querySelectorAll("button").forEach(b => b.classList.toggle("on", (b.dataset.v === "1") === voiceOn));
 }
@@ -1821,6 +1862,7 @@ $("segFacing").querySelectorAll("button").forEach(b => b.onclick = () => { $("fa
 $("segVoice").querySelectorAll("button").forEach(b => b.onclick = () => { voiceOn = b.dataset.v === "1"; SS("voice", voiceOn ? "1" : "0"); $("voiceE").textContent = voiceOn ? "🔊" : "🔇"; renderSettings(); });
 $("segClap").querySelectorAll("button").forEach(b => b.onclick = () => { clapOn = b.dataset.v === "1"; SS("clap", clapOn ? "1" : "0"); renderSettings(); });
 $("segFit").querySelectorAll("button").forEach(b => b.onclick = () => { fitMode = b.dataset.v; SS("fit", fitMode); applyFit(); renderSettings(); });
+$("segModel").querySelectorAll("button").forEach(b => b.onclick = () => { modelTier = b.dataset.v; SS("model", modelTier); renderSettings(); if (landmarker) loadPose().catch(() => {}); });
 $("settingsBtn").onclick = () => { renderSettings(); $("settings").hidden = false; pushScreen("settings"); };
 $("settingsClose").onclick = () => goBack();
 let wipeArmed = false;
@@ -1865,7 +1907,7 @@ function leaveStage() {
   if (workout) endWorkout("뒤로가기");
   $("summary").hidden = true;
   try { video.srcObject?.getTracks().forEach(t => t.stop()); } catch {}
-  video.srcObject = null; lastPose = null; sm = null; lockedSide = null; autoCfg = null; selCfg = null; selected = []; visScore.fill(0); speechSynthesis.cancel();
+  video.srcObject = null; lastPose = null; sm = null; for (const k in boneRef) delete boneRef[k]; lockedSide = null; autoCfg = null; selCfg = null; selected = []; visScore.fill(0); speechSynthesis.cancel();
   $("stage").hidden = true; $("setup").hidden = false; renderHome();
   $("start").disabled = false; $("start").querySelector(".ct").textContent = "카메라 켜기";
 };
