@@ -26,9 +26,14 @@ jobs:
         run: npm i -g @bubblewrap/cli
       - name: Bubblewrap config (use the runner's JDK + Android SDK)
         run: |
+          # Bubblewrap expects the legacy layout <sdk>/tools/bin/sdkmanager; mirror the runner's SDK with that extra link
+          SDK=$HOME/android-sdk; mkdir -p $SDK; for d in $ANDROID_HOME/*; do ln -sfn "$d" "$SDK/$(basename $d)"; done
+          ln -sfn $ANDROID_HOME/cmdline-tools/latest $SDK/tools
           mkdir -p ~/.bubblewrap
-          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null || true
+          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$SDK\"}" > ~/.bubblewrap/config.json
+          echo "ANDROID_HOME=$SDK" >> $GITHUB_ENV; echo "ANDROID_SDK_ROOT=$SDK" >> $GITHUB_ENV
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null 2>&1 || true
+          ls $SDK; ls $SDK/tools/bin | head
       - name: Keystore (restore from secret, or create once)
         run: |
           if [ -n "${{ secrets.ANDROID_KEYSTORE_B64 }}" ]; then
