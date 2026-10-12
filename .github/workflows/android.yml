@@ -40,8 +40,12 @@ jobs:
               -dname "CN=One More, OU=App, O=OneMore, L=Seoul, C=KR"
             echo "::warning::New keystore created. Download the 'keystore' artifact and add it as the ANDROID_KEYSTORE_B64 secret (base64) so future builds use the same key."
           fi
+      - name: Generate the Android project from twa-manifest.json
+        run: bubblewrap update --manifest ./twa-manifest.json --skipVersionUpgrade
       - name: Build APK + AAB
         run: bubblewrap build --skipPwaValidation --manifest ./twa-manifest.json
+      - name: List outputs
+        run: ls -la *.apk *.aab || ls -la
       - name: SHA-256 fingerprint → assetlinks.json
         run: |
           FP=$(keytool -list -v -keystore android.keystore -alias onemore -storepass "$BUBBLEWRAP_KEYSTORE_PASSWORD" | grep 'SHA256:' | sed 's/.*SHA256: //')
