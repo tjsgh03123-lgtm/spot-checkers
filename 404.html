@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>렙 템포</title>
+<title>원 모어</title>
 <style>
   /* Layout: full-screen camera, one status band on top, controls at bottom. Tilt state paints the whole frame edge. */
   :root {
@@ -222,7 +222,7 @@
 
 <div id="setup">
   <div class="homeHead">
-    <h1>렙 템포</h1>
+    <h1>원 모어 <span style="font-size:14px;color:var(--muted);font-weight:700;letter-spacing:.08em">ONE MORE</span></h1>
     <p>카메라로 횟수 · 가동범위 · 렙당 시간을 잽니다. 영상은 폰 밖으로 나가지 않습니다.</p>
   </div>
   <select id="exercise" hidden><option value="auto">자동</option><option value="squat">스쿼트</option><option value="pushup">푸시업</option><option value="curl">덤벨 컬</option><option value="pulldown">랫풀다운</option><option value="row">로우</option><option value="bench">벤치프레스</option><option value="shoulder">숄더프레스</option></select>
@@ -1379,14 +1379,14 @@ $("replayBtn").onclick = e => { e.stopPropagation(); if (lastSession) openReplay
 async function exportDiag(s) {
   const fr = s.frames || [], dur = fr.length > 1 ? (fr[fr.length - 1][0] - fr[0][0]) / 1000 : 0;
   const cfg = cfgOf(s);
-  const out = { app: "렙 템포", version: APP_VERSION, exported: new Date().toISOString(), ua: navigator.userAgent,
+  const out = { app: "원 모어 (One More)", version: APP_VERSION, exported: new Date().toISOString(), ua: navigator.userAgent,
                 exercise: s.exercise, label: labelOf(s), view: s.view, muscle: s.muscle, at: s.at,
                 cfg: { joints: cfg.joints, names: cfg.names, up: cfg.up, down: cfg.down, both: cfg.both, anchor: cfg.anchor, load: cfg.load },
                 weight: s.weight, smoothing: SMOOTH, delegate: delegateUsed,
                 reps: s.reps, partial: s.partial, fps: dur ? +(fr.length / dur).toFixed(1) : null, durationSec: +dur.toFixed(1),
                 frameFormat: ["t_ms", "angle_smoothed", ...TRACK.flatMap(j => [`x${j}`, `y${j}`]), "side", "angle_raw", "min_visibility_pct", "state(0up/1mid/2down)"],
                 frames: fr };
-  const name = `reptempo-diag-${(s.at || "").replace(/[:.]/g, "-").slice(0, 19)}.json`;
+  const name = `onemore-diag-${(s.at || "").replace(/[:.]/g, "-").slice(0, 19)}.json`;
   const blob = new Blob([JSON.stringify(out)], { type: "application/json" });
   try { const file = new File([blob], name, { type: "application/json" }); if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
