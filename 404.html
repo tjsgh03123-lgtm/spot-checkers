@@ -390,7 +390,7 @@ let visionMod = null;
 async function vision() { if (!visionMod) visionMod = await import(VISION_URL); return visionMod; }
 
 const $ = id => document.getElementById(id);
-const APP_VERSION = "2026-10-12d";   // bump when the counting logic changes, so a diagnostics file says which logic produced it
+const APP_VERSION = "2026-10-12e";   // bump when the counting logic changes, so a diagnostics file says which logic produced it
 // Only the joints the rep counter needs must be in frame. Head or feet may be cut off.
 // joints: landmark ids (L/R pairs); one side visible is enough. span: how much of the frame those joints should cover.
 // angle: the three joints (A-B-C, angle at B) the rep counter watches. up/down: angle thresholds for the two states.
@@ -1174,11 +1174,11 @@ function stepWorkout(wArg) {
   if (w.state === "mid" && w.tLeaveDown && target === "mid") {
     w.postMax = Math.max(w.postMax || 0, ang);
     const softUp = downThr + (cfg.up - downThr) * TURN.frac;
-    if (w.postMax >= softUp && ang <= w.postMax - TURN.drop) { target = "up"; w.pending = "up"; w.pendingN = 3; }
+    if (w.postMax >= softUp && ang <= w.postMax - TURN.drop) { target = "up"; w.pending = "up"; w.pendingN = DEBOUNCE.frames; w.pendingSince = now - DEBOUNCE.ms; }
   }
-  // debounce: a new state must hold 3 frames
-  if (target === w.pending) w.pendingN++; else { w.pending = target; w.pendingN = 1; }
-  if (w.pendingN < 3 || target === w.state) {
+  // debounce: a new state must hold for DEBOUNCE.ms and at least DEBOUNCE.frames frames (time-based so 15 fps and 30 fps behave alike)
+  if (target === w.pending) w.pendingN++; else { w.pending = target; w.pendingN = 1; w.pendingSince = now; }
+  if (w.pendingN < DEBOUNCE.frames || now - w.pendingSince < DEBOUNCE.ms || target === w.state) {
     if (w.state !== "up") { w.minAngle = Math.min(w.minAngle, ang); if (ang <= cfg.up - 35) w.deepMs = (w.deepMs || 0) + dtA * 1000; } else w.maxAngle = Math.max(w.maxAngle, ang);
     return;
   }
@@ -1227,6 +1227,7 @@ const START_DELAY_MS = 3000;   // joints in view for this long → the set start
 // what the three timed phases are called: the angle goes down → bottom → up, which is lifting for a curl / pulldown / row
 const phaseLabels = cfg => cfg && /curl|pulldown|row/.test(cfg.key || "") ? ["당김", "정지", "복귀"] : ["하강", "정지", "상승"];
 const TURN = { frac: 0.6, drop: 12 };
+const DEBOUNCE = { ms: 65, frames: 3 };   // was a fixed 3 frames: 100 ms at 30 fps but 200 ms at 15 fps, too slow for fast pumping reps
 const RATE = { maxDegPerSec: 1500 };   // fastest plausible joint-angle change (a very fast curl peaks ~900°/s; joint-level glitches are handled by the bone guard)
 const PARTIAL = { minMs: 300, minRepSec: 0.25 };   // a dip must stay in the deep zone this long to count as a partial rep; a whole rep shorter than minRepSec is flutter   // top turnaround: must climb past down + 60% of the up-down span, then fall back 12°
 function phaseTimes(frames, f0, f1) {
