@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>원 모어</title>
+<meta name="theme-color" content="#0b0f14">
+<meta name="application-name" content="원 모어">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="원 모어">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-180.png">
 <style>
   /* Layout: full-screen camera, one status band on top, controls at bottom. Tilt state paints the whole frame edge. */
   :root {
@@ -239,6 +248,10 @@
     <span class="ct">기록</span>
     <span class="cs" id="histSub">세트별 횟수 · 템포 · 동선</span>
   </button>
+  <button class="card" id="installBtn" hidden>
+    <span class="ct">앱으로 설치</span>
+    <span class="cs">홈 화면에 아이콘 추가 · 전체 화면으로 실행</span>
+  </button>
   <button class="card" id="settingsBtn">
     <span class="ct">설정</span>
     <span class="cs" id="setSub">카메라 · 음성 · 화면</span>
@@ -390,7 +403,12 @@ let visionMod = null;
 async function vision() { if (!visionMod) visionMod = await import(VISION_URL); return visionMod; }
 
 const $ = id => document.getElementById(id);
-const APP_VERSION = "2026-10-12e";   // bump when the counting logic changes, so a diagnostics file says which logic produced it
+const APP_VERSION = "2026-10-12f";
+// ---------- app shell: service worker + "add to home screen" ----------
+if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+let installEvt = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; const b = $("installBtn"); if (b) b.hidden = false; });
+window.addEventListener("appinstalled", () => { installEvt = null; const b = $("installBtn"); if (b) b.hidden = true; });   // bump when the counting logic changes, so a diagnostics file says which logic produced it
 // Only the joints the rep counter needs must be in frame. Head or feet may be cut off.
 // joints: landmark ids (L/R pairs); one side visible is enough. span: how much of the frame those joints should cover.
 // angle: the three joints (A-B-C, angle at B) the rep counter watches. up/down: angle thresholds for the two states.
@@ -1868,6 +1886,7 @@ $("segVoice").querySelectorAll("button").forEach(b => b.onclick = () => { voiceO
 $("segClap").querySelectorAll("button").forEach(b => b.onclick = () => { clapOn = b.dataset.v === "1"; SS("clap", clapOn ? "1" : "0"); renderSettings(); });
 $("segFit").querySelectorAll("button").forEach(b => b.onclick = () => { fitMode = b.dataset.v; SS("fit", fitMode); applyFit(); renderSettings(); });
 $("segModel").querySelectorAll("button").forEach(b => b.onclick = () => { modelTier = b.dataset.v; SS("model", modelTier); renderSettings(); if (landmarker) loadPose().catch(() => {}); });
+$("installBtn").onclick = async () => { if (!installEvt) return; installEvt.prompt(); try { await installEvt.userChoice; } catch {} installEvt = null; $("installBtn").hidden = true; };
 $("settingsBtn").onclick = () => { renderSettings(); $("settings").hidden = false; pushScreen("settings"); };
 $("settingsClose").onclick = () => goBack();
 let wipeArmed = false;
