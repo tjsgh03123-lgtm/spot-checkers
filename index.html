@@ -390,7 +390,7 @@ let visionMod = null;
 async function vision() { if (!visionMod) visionMod = await import(VISION_URL); return visionMod; }
 
 const $ = id => document.getElementById(id);
-const APP_VERSION = "2026-10-12c";   // bump when the counting logic changes, so a diagnostics file says which logic produced it
+const APP_VERSION = "2026-10-12d";   // bump when the counting logic changes, so a diagnostics file says which logic produced it
 // Only the joints the rep counter needs must be in frame. Head or feet may be cut off.
 // joints: landmark ids (L/R pairs); one side visible is enough. span: how much of the frame those joints should cover.
 // angle: the three joints (A-B-C, angle at B) the rep counter watches. up/down: angle thresholds for the two states.
@@ -679,8 +679,8 @@ function boneGuard(raw, now) {
   }
   return out;
 }
-const SMOOTH = { minCutoff: 0.6, beta: 8, dCutoff: 1.5, deadband: 0.002, holdMs: 500, predictMs: 90,
-                 jumpMax: 0.08, jumpFrames: 2 };   // a joint that leaps > 8% of the frame in one step while it was slow is a detector glitch: hold it up to 2 frames   // predictMs: display-only look-ahead that cancels the detector's own delay
+const SMOOTH = { minCutoff: 0.6, beta: 25, dCutoff: 3, deadband: 0.002, holdMs: 500, predictMs: 90,
+                 jumpRate: 4, jumpFrames: 2 };   // a joint that leaps faster than 4 frame-widths/s while it was slow is a detector glitch: hold it up to 2 frames (a fast curl peaks ~2/s)   // predictMs: display-only look-ahead that cancels the detector's own delay
 let sm = null, smT = 0, delegateUsed = "";
 function smoothPose(raw, now) {
   if (!raw) { sm = null; return null; }
@@ -697,7 +697,7 @@ function smoothPose(raw, now) {
     let dx = p.x - q.x, dy = p.y - q.y;
     // glitch rejection: a sudden leap from a slow joint is almost always a misdetection that snaps back within a frame or two
     const leap = Math.hypot(dx, dy);
-    if (leap > SMOOTH.jumpMax && Math.hypot(q.vx, q.vy) < 0.6 && (q.skip || 0) < SMOOTH.jumpFrames) { q.skip = (q.skip || 0) + 1; continue; }
+    if (leap / dt > SMOOTH.jumpRate && Math.hypot(q.vx, q.vy) < 0.6 && (q.skip || 0) < SMOOTH.jumpFrames) { q.skip = (q.skip || 0) + 1; continue; }
     q.skip = 0;
     // velocity estimate (itself lightly filtered), then the adaptive cutoff
     q.vx += aD * (dx / dt - q.vx); q.vy += aD * (dy / dt - q.vy);
@@ -1136,7 +1136,7 @@ function stepWorkout(wArg) {
   // jumping 60° in one frame) are clipped to the plausible rate, so they neither count as reps nor as partial reps.
   const dtA = w.lastT ? Math.min(0.2, Math.max(0.01, (now - w.lastT) / 1000)) : 0.033; w.lastT = now;
   if (w.angle != null) { const maxStep = RATE.maxDegPerSec * dtA; if (Math.abs(raw - w.angle) > maxStep) raw = w.angle + Math.sign(raw - w.angle) * maxStep; }
-  w.angle = w.angle == null ? raw : w.angle * 0.25 + raw * 0.75;   // very light: landmarks are already smoothed, more would add lag
+  w.angle = w.angle == null ? raw : w.angle * 0.15 + raw * 0.85;   // very light: landmarks are already smoothed, more would add lag
   if (bal) {
     setGauge("bar", "바 수평", bal.bar * 100, { min: -40, max: 40, zero: 0, warn: 8, bad: 12, unit: "%", signed: true, sub: bal.bar > 0.03 ? "왼쪽 낮음" : bal.bar < -0.03 ? "오른쪽 낮음" : "수평" });
     setGauge("sh", "어깨 수평", bal.sh * 100, { min: -40, max: 40, zero: 0, warn: 8, bad: 12, unit: "%", signed: true });
@@ -1187,8 +1187,8 @@ function stepWorkout(wArg) {
     w.armed = false; w.started = now; beep(880, 120, 2); startRec();
     $("repSub").textContent = w.cfg.label + (w.weight ? ` · ${w.weight}kg` : ""); $("msg").textContent = "운동 중. 스위치를 끄면 세트를 끝냅니다.";
   }
-  if (prev === "up" && target === "mid") { w.tLeaveUp = now; w.minAngle = ang; w.repStartFrame = w.frames.length; $("repT").textContent = "내려가는 중"; }
-  else if (target === "down") { if (!w.tEnterDown || prev !== "down") w.tEnterDown = now; w.postMax = 0; $("repT").textContent = "바닥"; }
+  if (prev === "up" && target !== "up") { w.tLeaveUp = now - (target === "down" ? 3 * dtA * 1000 : 0); w.minAngle = ang; w.repStartFrame = Math.max(0, w.frames.length - (target === "down" ? 3 : 0)); w.deepMs = 0; if (target === "mid") $("repT").textContent = "내려가는 중"; }
+  if (target === "down") { if (!w.tEnterDown || prev !== "down") w.tEnterDown = now; w.postMax = 0; $("repT").textContent = "바닥"; }
   else if (prev === "down" && target === "mid") { w.tLeaveDown = now; $("repT").textContent = "올라오는 중"; }
   else if (target === "up" && prev !== "up") {
     if (w.tEnterDown && w.tLeaveDown && w.tEnterDown >= w.tLeaveUp) {
@@ -1198,6 +1198,7 @@ function stepWorkout(wArg) {
       // phase times from the angle velocity: 하강 = moving toward the bottom, 정지 = angle not changing near the bottom, 상승 = moving back up.
       // The threshold-based split put most of the movement between the down threshold and the bottom into "정지"; this is what the body actually did.
       const ph = phaseTimes(w.frames, rep.f0, rep.f1); if (ph) { rep.thrDown = rep.down; rep.thrHold = rep.hold; rep.thrUp = rep.up; Object.assign(rep, ph); }
+      if (rep.down + rep.hold + rep.up < PARTIAL.minRepSec) { w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180; w.postMax = 0; w.deepMs = 0; return; }   // faster than a loaded limb can move: detector flutter, not a rep
       if (w.bal) { rep.bar = Math.round(w.bal.bar * 100); rep.sh = Math.round(w.bal.sh * 100); rep.diff = Math.round(w.bal.diff); w.bal = null; }
       if (w.back) Object.assign(rep, backRepValues(w));
       if (w.sideM) Object.assign(rep, sideRepValues(w));
@@ -1226,8 +1227,8 @@ const START_DELAY_MS = 3000;   // joints in view for this long → the set start
 // what the three timed phases are called: the angle goes down → bottom → up, which is lifting for a curl / pulldown / row
 const phaseLabels = cfg => cfg && /curl|pulldown|row/.test(cfg.key || "") ? ["당김", "정지", "복귀"] : ["하강", "정지", "상승"];
 const TURN = { frac: 0.6, drop: 12 };
-const RATE = { maxDegPerSec: 700 };    // fastest plausible joint-angle change (a fast curl peaks around 300°/s)
-const PARTIAL = { minMs: 300 };        // a dip must stay in the deep zone this long to count as a partial rep   // top turnaround: must climb past down + 60% of the up-down span, then fall back 12°
+const RATE = { maxDegPerSec: 1500 };   // fastest plausible joint-angle change (a very fast curl peaks ~900°/s; joint-level glitches are handled by the bone guard)
+const PARTIAL = { minMs: 300, minRepSec: 0.25 };   // a dip must stay in the deep zone this long to count as a partial rep; a whole rep shorter than minRepSec is flutter   // top turnaround: must climb past down + 60% of the up-down span, then fall back 12°
 function phaseTimes(frames, f0, f1) {
   const n = f1 - f0; if (n < 5) return null;
   const t = i => frames[i][0] / 1000, a = i => frames[i][1];
@@ -1412,7 +1413,7 @@ function endWorkout(reason) {
   const sessions = JSON.parse(LS("sessions") || "[]");
   lastSession = { exercise: w.exKey || (w.cfg.auto ? "auto" : exercise), muscle: muscle !== "all" ? muscle : undefined, back: w.back ? { sel: w.back.sel, view: w.back.view } : undefined, side: w.sideM ? { sel: w.sideM.sel } : undefined, view: camView,
                   at: new Date().toISOString(), reps: r, partial: w.partial, frames: w.frames, started: w.started,
-                  ref: null, weight: w.weight || undefined,
+                  ref: null, weight: w.weight || undefined, model: loadedTier || undefined, delegate: delegateUsed || undefined,
                   cfg: w.cfg.auto ? { joints: w.cfg.joints, names: w.cfg.names, label: w.cfg.label, anchor: w.cfg.anchor, load: w.cfg.load, both: w.cfg.both, auto: true, view: w.cfg.view, kind: w.cfg.kind, trace: w.cfg.trace } : undefined };
   const stored = { ...lastSession, clipStart: 0 };
   sessions.push(stored);
@@ -1431,7 +1432,7 @@ async function exportDiag(s) {
   const out = { app: "원 모어 (One More)", version: APP_VERSION, exported: new Date().toISOString(), ua: navigator.userAgent,
                 exercise: s.exercise, label: labelOf(s), view: s.view, muscle: s.muscle, at: s.at,
                 cfg: { joints: cfg.joints, names: cfg.names, up: cfg.up ?? (EX[s.exercise] || {}).up, down: cfg.down ?? (EX[s.exercise] || {}).down, both: cfg.both, anchor: cfg.anchor, load: cfg.load },
-                weight: s.weight, smoothing: SMOOTH, bone: BONE, delegate: delegateUsed, model: loadedTier,
+                weight: s.weight, smoothing: SMOOTH, bone: BONE, rate: RATE, delegate: s.delegate || delegateUsed, model: s.model || loadedTier,
                 reps: s.reps, partial: s.partial, fps: dur ? +(fr.length / dur).toFixed(1) : null, durationSec: +dur.toFixed(1),
                 frameFormat: ["t_ms", "angle_smoothed", ...TRACK.flatMap(j => [`x${j}`, `y${j}`]), "side", "angle_raw", "min_visibility_pct", "state(0up/1mid/2down)"],
                 frames: fr };
