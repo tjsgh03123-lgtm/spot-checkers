@@ -1,0 +1,17 @@
+{
+  "name": "카운팅 — 카메라 렙 카운터",
+  "short_name": "카운팅",
+  "description": "폰 카메라로 운동 횟수와 렙당 시간을 셉니다. 영상은 폰 밖으로 나가지 않습니다.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
+  "lang": "ko",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -7,12 +7,18 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: [twa-manifest.json]
+    paths: [twa-manifest.json, twa-manifest-counting.json]
 permissions:
   contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { edition: onemore,  manifest: twa-manifest.json,          pkg: app.onemore.counter,  release: android-latest,          dir: twa-onemore }
+          - { edition: counting, manifest: twa-manifest-counting.json, pkg: app.onemore.counting, release: android-counting-latest, dir: twa-counting }
+      max-parallel: 1
     env:
       BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'onemore-keystore' }}
       BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || 'onemore-keystore' }}
@@ -47,12 +53,15 @@ jobs:
               -dname "CN=One More, OU=App, O=OneMore, L=Seoul, C=KR"
             echo "::warning::New keystore created. Download the 'keystore' artifact and add it as the ANDROID_KEYSTORE_B64 secret (base64) so future builds use the same key."
           fi
-      - name: Generate the Android project from twa-manifest.json
-        run: bubblewrap update --manifest ./twa-manifest.json --skipVersionUpgrade
+      - name: Generate the Android project from the edition's manifest (in its own folder)
+        run: |
+          mkdir -p ${{ matrix.dir }} && cp ${{ matrix.manifest }} ${{ matrix.dir }}/twa-manifest.json && cp android.keystore ${{ matrix.dir }}/
+          cd ${{ matrix.dir }} && bubblewrap update --manifest ./twa-manifest.json --skipVersionUpgrade
       - name: Build APK + AAB
         run: |
           set -o pipefail
-          bubblewrap build --skipPwaValidation --manifest ./twa-manifest.json 2>&1 | tee build.log
+          cd ${{ matrix.dir }} && bubblewrap build --skipPwaValidation --manifest ./twa-manifest.json 2>&1 | tee ../build.log
+          cp app-release-signed.apk app-release-bundle.aab ..
       - name: List outputs
         if: always()
         run: ls -la >> build.log; ls -la *.apk *.aab >> build.log 2>&1 || true
@@ -67,25 +76,25 @@ jobs:
           FP=$(keytool -list -v -keystore android.keystore -alias onemore -storepass "$BUBBLEWRAP_KEYSTORE_PASSWORD" | grep 'SHA256:' | sed 's/.*SHA256: //')
           echo "SHA256=$FP" >> $GITHUB_ENV
           mkdir -p .well-known
-          printf '[{"relation":["delegate_permission/common.handle_all_urls"],"target":{"namespace":"android_app","package_name":"app.onemore.counter","sha256_cert_fingerprints":["%s"]}}]\n' "$FP" > .well-known/assetlinks.json
+          # both editions are signed with the same key: one assetlinks.json lists both packages
+          printf '[{"relation":["delegate_permission/common.handle_all_urls"],"target":{"namespace":"android_app","package_name":"app.onemore.counter","sha256_cert_fingerprints":["%s"]}},{"relation":["delegate_permission/common.handle_all_urls"],"target":{"namespace":"android_app","package_name":"app.onemore.counting","sha256_cert_fingerprints":["%s"]}}]\n' "$FP" "$FP" > .well-known/assetlinks.json
           cat .well-known/assetlinks.json
       - name: Publish assetlinks.json to the site (main + gh-pages)
         run: |
           git config user.name "github-actions"; git config user.email "actions@github.com"
+          git pull -q --rebase origin main || true
           git add .well-known/assetlinks.json
-          git commit -m "assetlinks.json for app.onemore.counter ($SHA256)" || echo "no change"
+          git commit -m "assetlinks.json for app.onemore.counter + app.onemore.counting ($SHA256)" || echo "no change"
           git push origin HEAD:main || true
           git push -f origin HEAD:gh-pages || true
       - name: Publish APK + AAB as the "android-latest" release (plain download link for the phone)
         env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
         run: |
-          cp app-release-signed.apk onemore.apk; cp app-release-bundle.aab onemore.aab
-          gh release delete android-latest -y --cleanup-tag 2>/dev/null || true
-          gh release create android-latest onemore.apk onemore.aab --title "원 모어 Android (최신 빌드)" \
-            --notes "앱 버전 $(node -p "require('./twa-manifest.json').appVersionName") · 서명 SHA-256 $SHA256 · 빌드 $GITHUB_RUN_ID"
+          cp app-release-signed.apk ${{ matrix.edition }}.apk; cp app-release-bundle.aab ${{ matrix.edition }}.aab
+          gh release delete ${{ matrix.release }} -y --cleanup-tag 2>/dev/null || true
+          gh release create ${{ matrix.release }} ${{ matrix.edition }}.apk ${{ matrix.edition }}.aab --title "${{ matrix.edition == 'counting' && '카운팅' || '원 모어' }} Android (최신 빌드)" \
+            --notes "앱 버전 $(node -p "require('./${{ matrix.manifest }}').appVersionName") · 패키지 ${{ matrix.pkg }} · 서명 SHA-256 $SHA256 · 빌드 $GITHUB_RUN_ID"
       - uses: actions/upload-artifact@v4
-        with: { name: onemore-apk, path: app-release-signed.apk }
+        with: { name: "${{ matrix.edition }}-apk", path: app-release-signed.apk }
       - uses: actions/upload-artifact@v4
-        with: { name: onemore-aab, path: app-release-bundle.aab }
-      - uses: actions/upload-artifact@v4
-        with: { name: keystore, path: android.keystore }
+        with: { name: "${{ matrix.edition }}-aab", path: app-release-bundle.aab }

@@ -409,7 +409,9 @@ let visionMod = null;
 async function vision() { if (!visionMod) visionMod = await import(VISION_URL); return visionMod; }
 
 const $ = id => document.getElementById(id);
-const APP_VERSION = "2026-10-13e";
+const APP_VERSION = "2026-10-13f";
+// LITE: the "카운팅" edition — counting, rep timing, summary, history, replay only. Built from this file by tools/build-counting.py.
+const LITE = false;
 // ---------- app shell: service worker + "add to home screen" ----------
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 let installEvt = null;
@@ -924,7 +926,7 @@ const BACK_MUSCLES = [
 let backSel = (() => { try { const v = JSON.parse(LS("backSel") || "null"); return Array.isArray(v) && v.length ? v : ["lats", "utrap", "ltrap"]; } catch { return ["lats", "utrap", "ltrap"]; } })();
 const backLabel = id => (BACK_MUSCLES.find(m => m.id === id) || {}).label || id;
 const BACK_EX = ["pulldown", "row"];   // exercises where the back indicators are computed
-const backActive = cfg => muscle === "back" && BACK_EX.includes(exercise) && backSel.length > 0;
+const backActive = cfg => !LITE && muscle === "back" && BACK_EX.includes(exercise) && backSel.length > 0;
 // ---------- camera view: front / rear / side. Side view unlocks the torso indicators below ----------
 const VIEWS = { front: "정면", rear: "후면", side: "측면" };
 let camView = VIEWS[LS("camView")] ? LS("camView") : "front";
@@ -950,7 +952,7 @@ const SIDE_METRICS = [
   { id: "hinge", label: "상체-허벅지 각도", short: "상체·허벅지" },
 ];
 let sideSel = (() => { try { const v = JSON.parse(LS("sideSel") || "null"); return Array.isArray(v) ? v : ["lean", "spine", "hinge"]; } catch { return ["lean", "spine", "hinge"]; } })();
-const sideActive = () => camView === "side" && sideSel.length > 0;
+const sideActive = () => !LITE && camView === "side" && sideSel.length > 0;
 function sideMetrics(L, side) {
   const vis = p => (p.visibility ?? 1) >= 0.4;
   const sd = side === 1 ? [12, 24, 26, 8] : [11, 23, 25, 7];
@@ -968,6 +970,7 @@ function sideMetrics(L, side) {
 // opts.warn/bad = |value - zero| that turns the gauge yellow / red (opts.lowBad: value below bad is red instead), opts.unit, opts.sub (small text)
 const gaugeEls = {}, gaugePrev = {};
 function setGauge(id, label, value, o = {}) {
+  if (LITE) return;
   let g = gaugeEls[id];
   if (!g) {
     g = gaugeEls[id] = document.createElement("div"); g.className = "gg";
@@ -1339,6 +1342,7 @@ function backRepValues(w) {
   return out;
 }
 function setEffort(reps, cfg, exKey) {
+  if (LITE) return null;
   const v = reps.filter(r => r.vl != null); if (reps.length < EFFORT.minReps || v.length < 2) return null;
   const last = v.slice(-2), vl = Math.round(last.reduce((a, r) => a + r.vl, 0) / last.length);
   return { vl, band: effortOf(vl, cfg), rirCal: calPredict(exKey, vl) };
@@ -1862,7 +1866,7 @@ function renderHistory() {
       ${delta}
       ${s.side ? `<div class="h2" style="flex-wrap:wrap">${sideSummaryRows(r, s.side.sel).replace(/<div class="kv"><span>([^<]*)<\/span><b>([^<]*)<\/b><\/div>/g, "<span>$1 <b>$2</b></span>")}</div>` : ""}
       ${s.back ? `<div class="h2" style="flex-wrap:wrap">${backSummaryRows(r, s.back.sel, s.back.view).replace(/<div class="kv"><span>([^<]*)<\/span><b>([^<]*)<\/b><\/div>/g, "<span>$1 <b>$2</b></span>")}</div>` : ""}
-      ${s.frames && s.frames.length ? `<div class="row"><button class="rpOpen" data-i="${all.indexOf(s)}" style="flex:0;padding:8px 14px;font-size:14px">${s.hasClip ? "영상 · 동선 보기" : "동선 보기"}</button><button class="dgOpen" data-i="${all.indexOf(s)}" style="flex:0;padding:8px 14px;font-size:14px">진단 파일</button></div>` : ""}
+      ${s.frames && s.frames.length ? `<div class="row"><button class="rpOpen" data-i="${all.indexOf(s)}" style="flex:0;padding:8px 14px;font-size:14px">${s.hasClip ? "영상 · 동선 보기" : "동선 보기"}</button>${LITE ? "" : `<button class="dgOpen" data-i="${all.indexOf(s)}" style="flex:0;padding:8px 14px;font-size:14px">진단 파일</button>`}</div>` : ""}
       <div class="detail">${r.map((x, i) => `<div class="rr ${i === fi ? "fast" : i === si ? "slow" : ""}"><span class="no">${x.n}</span><b>${repTot(x).toFixed(1)}s</b><span class="seg">↓${x.down.toFixed(1)} · ■${x.hold.toFixed(1)} · ↑${x.up.toFixed(1)}${x.vl != null ? ` · VL${x.vl}%` : ""}${s.back ? " · " + backRepText(x, s.back.sel) : ""}${s.side ? " · " + sideRepText(x, s.side.sel) : ""}</span><span class="min">${x.min}°</span></div>`).join("")}</div>
     </div>`;
   }
@@ -1966,6 +1970,12 @@ $("wipeBtn").onclick = () => {
   try { localStorage.removeItem("sessions"); localStorage.removeItem("spots"); } catch {}
   wipeArmed = false; $("wipeBtn").textContent = "모든 기록 지우기"; $("wipeMsg").textContent = "지웠습니다."; lastSession = null;
 };
+if (LITE) {   // 카운팅 edition: no muscle / view / indicator / effort / diagnostics UI
+  for (const id of ["muscleRow", "sideRow", "backRow", "segFail", "sumEffort", "sumMore", "diagBtn", "segClap", "segViewJp", "jpViewTip", "rpDbg"]) { const e = $(id); if (e) e.hidden = true; }
+  $("segView").parentElement.hidden = true; $("segFail").parentElement.hidden = true;
+  $("repBack").hidden = true; $("repSide").hidden = true;
+  document.querySelector("#pick .sub").textContent = "운동을 고르면 그 운동의 관절로 횟수를 셉니다";
+}
 if (LS("exercise")) $("exercise").value = LS("exercise");
 if (LS("facing")) $("facing").value = LS("facing");
 if (LS("voice") === "0") { voiceOn = false; $("voiceE").textContent = "🔇"; }
