@@ -403,7 +403,7 @@ let visionMod = null;
 async function vision() { if (!visionMod) visionMod = await import(VISION_URL); return visionMod; }
 
 const $ = id => document.getElementById(id);
-const APP_VERSION = "2026-10-12f";
+const APP_VERSION = "2026-10-13a";
 // ---------- app shell: service worker + "add to home screen" ----------
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 let installEvt = null;
@@ -436,16 +436,16 @@ function updateVisible(pose) { for (let i = 0; i < 33; i++) visScore[i] = visSco
 const visibleSet = () => visScore.map((v, i) => v > 0.5 ? i : -1).filter(i => i >= 0);
 
 // ---------- joint selection by touch: three joints in a row, the middle one is the angle vertex ----------
-const JN = { 0: "머리", 7: "왼귀", 8: "오른귀", 11: "왼어깨", 12: "오른어깨", 13: "왼팔꿈치", 14: "오른팔꿈치", 15: "왼손목", 16: "오른손목", 23: "왼엉덩이", 24: "오른엉덩이", 25: "왼무릎", 26: "오른무릎", 27: "왼발목", 28: "오른발목" };
-const JSHORT = { 11: "어깨", 12: "어깨", 13: "팔꿈치", 14: "팔꿈치", 15: "손목", 16: "손목", 23: "엉덩이", 24: "엉덩이", 25: "무릎", 26: "무릎", 27: "발목", 28: "발목" };
-const mirrorJ = i => (i >= 11 && i <= 28) ? (i % 2 ? i + 1 : i - 1) : i;
+const JN = { 0: "머리", 7: "왼귀", 8: "오른귀", 19: "왼검지", 20: "오른검지", 29: "왼뒤꿈치", 30: "오른뒤꿈치", 31: "왼발끝", 32: "오른발끝", 11: "왼어깨", 12: "오른어깨", 13: "왼팔꿈치", 14: "오른팔꿈치", 15: "왼손목", 16: "오른손목", 23: "왼엉덩이", 24: "오른엉덩이", 25: "왼무릎", 26: "오른무릎", 27: "왼발목", 28: "오른발목" };
+const JSHORT = { 19: "검지", 20: "검지", 29: "뒤꿈치", 30: "뒤꿈치", 31: "발끝", 32: "발끝", 11: "어깨", 12: "어깨", 13: "팔꿈치", 14: "팔꿈치", 15: "손목", 16: "손목", 23: "엉덩이", 24: "엉덩이", 25: "무릎", 26: "무릎", 27: "발목", 28: "발목" };
+const mirrorJ = i => (i >= 11 && i <= 32) ? (i % 2 ? i + 1 : i - 1) : i;
 let selected = [], selBoth = false, selCfg = null;
 function buildSelCfg() {
   selCfg = null;
   if (selected.length !== 3) return;
   const [a, b, c] = selected, side = a % 2 ? 0 : 1;   // odd ids are the left side in MediaPipe
   const pair = i => side === 0 ? [i, mirrorJ(i)] : [mirrorJ(i), i];
-  const leg = [23, 24, 25, 26, 27, 28].includes(b);
+  const leg = [23, 24, 25, 26, 27, 28, 29, 30, 31, 32].includes(b);
   selCfg = { joints: [pair(a), pair(b), pair(c)], names: [JSHORT[a] || JN[a], JSHORT[b] || JN[b], JSHORT[c] || JN[c]],
              up: leg ? 160 : 150, down: leg ? 100 : 90, label: (selBoth ? "양쪽 " : (side ? "오른쪽 " : "왼쪽 ")) + JSHORT[a] + "·" + JSHORT[b] + "·" + JSHORT[c],
              anchor: leg ? 2 : 0, load: leg ? 0 : 2, both: selBoth, auto: true, kind: leg ? "leg" : "arm", trace: leg ? [0, 1] : [2, 1], side, span: [0, 1], axis: "y", tip: "" };
@@ -468,9 +468,10 @@ function renderSel() {
   try { SS("sel_" + exercise, JSON.stringify({ selected, selBoth })); } catch {}
 }
 // ---------- joint picker on a body diagram (works without the camera seeing you) ----------
-const JPOS = { 0: [0.5, 0.07], 11: [0.64, 0.21], 12: [0.36, 0.21], 13: [0.72, 0.37], 14: [0.28, 0.37], 15: [0.76, 0.53], 16: [0.24, 0.53],
-               23: [0.58, 0.50], 24: [0.42, 0.50], 25: [0.59, 0.71], 26: [0.41, 0.71], 27: [0.60, 0.92], 28: [0.40, 0.92] };   // figure faces you: its left is on your right
-const JBONES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
+const JPOS = { 0: [0.5, 0.07], 11: [0.64, 0.21], 12: [0.36, 0.21], 13: [0.72, 0.36], 14: [0.28, 0.36], 15: [0.74, 0.50], 16: [0.26, 0.50],
+               23: [0.58, 0.48], 24: [0.42, 0.48], 25: [0.59, 0.66], 26: [0.41, 0.66], 27: [0.60, 0.81], 28: [0.40, 0.81],
+               19: [0.84, 0.62], 20: [0.16, 0.62], 29: [0.54, 0.92], 30: [0.46, 0.92], 31: [0.71, 0.91], 32: [0.29, 0.91] };   // figure faces you: its left is on your right. 검지 = hand, 뒤꿈치/발끝 = foot
+const JBONES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28],[15,19],[16,20],[27,29],[27,31],[28,30],[28,32]];
 function drawJP() {
   const c = $("jpCanvas"), g = c.getContext("2d");
   const W = c.clientWidth || 340, H = c.clientHeight || 480; if (c.width !== W * 2 || c.height !== H * 2) { c.width = W * 2; c.height = H * 2; }
@@ -484,7 +485,7 @@ function drawJP() {
   for (const i of Object.keys(JPOS).map(Number)) { if (i === 0) continue; const p = P(i), k = selected.indexOf(i), mir = selBoth && selected.length === 3 && selected.map(mirrorJ).includes(i);
     g.fillStyle = k >= 0 ? "#c5f03e" : mir ? "rgba(197,240,62,.5)" : "#f2f4f6"; g.beginPath(); g.arc(p[0], p[1], k >= 0 ? 18 : 13, 0, 7); g.fill();
     g.fillStyle = k >= 0 ? "#0b0f14" : "#8a97a5"; g.font = (k >= 0 ? "bold 16px" : "11px") + " sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
-    g.fillText(k >= 0 ? String(k + 1) : JSHORT[i], p[0], k >= 0 ? p[1] : p[1] + 26); }
+    g.fillText(k >= 0 ? String(k + 1) : JSHORT[i], p[0], k >= 0 ? p[1] : p[1] + ((i === 29 || i === 30) ? -24 : 26)); }   // heel labels go above: the two heels sit close together
   const lab = i => JN[i];
   $("jpInfo").textContent = selected.length === 3 ? `${selected.map(lab).join(" → ")} · 각도: ${lab(selected[1])}${selBoth ? " · 양쪽" : ""}` : selected.length ? `${selected.length}/3: ${selected.map(lab).join(" → ")}` : "3개를 순서대로 터치";
   $("jpBoth").textContent = selBoth ? "양쪽 추적" : "한쪽 추적";
@@ -1063,7 +1064,8 @@ function backMetrics(L, view, side) {
   return m;
 }
 // Personal reference rep: one perfect rep with light weight. Its depth becomes the 100% ROM for this exercise.
-const TRACK = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];   // joints recorded per frame for replay
+const TRACK_V1 = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
+const TRACK = [...TRACK_V1, 19, 20, 29, 30, 31, 32];   // joints recorded per frame for replay (v2 adds index fingers, heels, toes)
 // weight entered before the set, remembered per exercise
 const weightOf = ex => { const v = parseFloat(LS("wt_" + ex)); return Number.isFinite(v) && v > 0 ? v : 0; };
 
@@ -1432,7 +1434,7 @@ function endWorkout(reason) {
   const sessions = JSON.parse(LS("sessions") || "[]");
   lastSession = { exercise: w.exKey || (w.cfg.auto ? "auto" : exercise), muscle: muscle !== "all" ? muscle : undefined, back: w.back ? { sel: w.back.sel, view: w.back.view } : undefined, side: w.sideM ? { sel: w.sideM.sel } : undefined, view: camView,
                   at: new Date().toISOString(), reps: r, partial: w.partial, frames: w.frames, started: w.started,
-                  ref: null, weight: w.weight || undefined, model: loadedTier || undefined, delegate: delegateUsed || undefined,
+                  ref: null, weight: w.weight || undefined, model: loadedTier || undefined, delegate: delegateUsed || undefined, track: TRACK,
                   cfg: w.cfg.auto ? { joints: w.cfg.joints, names: w.cfg.names, label: w.cfg.label, anchor: w.cfg.anchor, load: w.cfg.load, both: w.cfg.both, auto: true, view: w.cfg.view, kind: w.cfg.kind, trace: w.cfg.trace } : undefined };
   const stored = { ...lastSession, clipStart: 0 };
   sessions.push(stored);
@@ -1453,7 +1455,7 @@ async function exportDiag(s) {
                 cfg: { joints: cfg.joints, names: cfg.names, up: cfg.up ?? (EX[s.exercise] || {}).up, down: cfg.down ?? (EX[s.exercise] || {}).down, both: cfg.both, anchor: cfg.anchor, load: cfg.load },
                 weight: s.weight, smoothing: SMOOTH, bone: BONE, rate: RATE, delegate: s.delegate || delegateUsed, model: s.model || loadedTier,
                 reps: s.reps, partial: s.partial, fps: dur ? +(fr.length / dur).toFixed(1) : null, durationSec: +dur.toFixed(1),
-                frameFormat: ["t_ms", "angle_smoothed", ...TRACK.flatMap(j => [`x${j}`, `y${j}`]), "side", "angle_raw", "min_visibility_pct", "state(0up/1mid/2down)"],
+                frameFormat: ["t_ms", "angle_smoothed", ...(s.track || TRACK_V1).flatMap(j => [`x${j}`, `y${j}`]), "side", "angle_raw", "min_visibility_pct", "state(0up/1mid/2down)"],
                 frames: fr };
   const name = `onemore-diag-${(s.at || "").replace(/[:.]/g, "-").slice(0, 19)}.json`;
   const blob = new Blob([JSON.stringify(out)], { type: "application/json" });
@@ -1465,12 +1467,15 @@ $("diagBtn").onclick = e => { e.stopPropagation(); if (lastSession) exportDiag(l
 let lastSession = null;
 
 // ---------- replay: skeleton animation + joint path, with the reference rep as a ghost ----------
-const TI = {}; TRACK.forEach((j, i) => TI[j] = i);
+let TI = {}, TRACK_RP = TRACK;
+const useTrack = tr => { TRACK_RP = tr; TI = {}; tr.forEach((j, i) => TI[j] = i); };
+useTrack(TRACK);
 const BONES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
 let rp = null;   // replay state
 async function openReplay(s) {
   if (!s.frames || !s.frames.length) { $("msg").textContent = "이 세트에는 동선 데이터가 없습니다."; return; }
   const cfg = cfgOf(s);
+  useTrack(s.track || TRACK_V1);   // sessions recorded before v2 have the shorter frame layout
   rp = { s, cfg, i: 0, playing: true, speed: 1, last: performance.now(), rep: 0, showRef: !!(s.ref && s.ref.frames), video: null, offset: 0 };
   $("rpRef").hidden = true;
   $("rpTitle").textContent = s.warm ? "가벼운 무게 궤적" : "본 세트 궤적";
@@ -1530,7 +1535,7 @@ function drawReplay() {
   const fm = vw ? fitMap(vw, vh, W, H) : { s: 0, ox: 0, oy: 0 }, sc = fm.s, ox = fm.ox, oy = fm.oy;
   const P = (fr0, j) => vw ? [ox + fr0[2 + TI[j] * 2] / 1000 * vw * sc, oy + fr0[3 + TI[j] * 2] / 1000 * vh * sc]
                            : [fr0[2 + TI[j] * 2] / 1000 * W, fr0[3 + TI[j] * 2] / 1000 * H];
-  const sideOf = fr0 => fr0[2 + TRACK.length * 2] || 0;
+  const sideOf = fr0 => fr0[2 + TRACK_RP.length * 2] || 0;
   const both = !!rp.cfg.both;
   const chain = fr0 => rp.cfg.joints.map(p => p[sideOf(fr0)]);       // the loaded joints only (one side)
   const chain2 = fr0 => rp.cfg.joints.map(p => p[1]);
