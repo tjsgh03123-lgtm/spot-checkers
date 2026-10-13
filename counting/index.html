@@ -156,7 +156,7 @@
 </div>
 
 <script type="module">
-const APP_VERSION = "counting-2026-10-13g";
+const APP_VERSION = "counting-2026-10-13h";
 const $ = id => document.getElementById(id);
 const LS = k => { try { return localStorage.getItem("ct_" + k); } catch { return null; } };
 const SS = (k, v) => { try { localStorage.setItem("ct_" + k, v); } catch {} };
@@ -321,25 +321,36 @@ const CHAINS = [
   { id: "hip",   label: "엉덩이", L: [11, 23, 25], R: [12, 24, 26], kind: "leg" },
   { id: "shoulder", label: "어깨", L: [23, 11, 13], R: [24, 12, 14], kind: "arm" },
 ];
-const DETECT = { windowMs: 5000, minSwing: 60, minVis: 0.5, bandFrac: 0.3, upFrac: 0.1, downFrac: 0.3, edgeFrac: 0.15 };   // minSwing: degrees of range that counts as a movement; thresholds sit bandFrac into the range from each end; the window must start and end near the top (a full rep)
-function detectMovement(hist, now, exclude) {
-  // hist: array of {t, a: {chainId_side: angle}} within the window
+const DETECT = { windowMs: 8000, minSwing: 60, minVis: 0.6, edge: 0.03, bandFrac: 0.3, upFrac: 0.1, downFrac: 0.3, edgeFrac: 0.15, dipMs: 120 };
+// minSwing: degrees of range that counts as a movement; all three joints must be visible and inside the frame (edge margin) for the whole window;
+// the window must start and end near the top (a full rep) and each dip and top must last dipMs (a spike is tracking noise, not a rep)
+function detectMovement(hist, now, exclude, kinds, needReps = 1) {
+  // hist: array of {t, a: {chainId_side: angle}} within the window; kinds: chain kinds the exercise name allows (null = any)
   const from = now - DETECT.windowMs; const win = hist.filter(h => h.t >= from); if (win.length < 15) return null;
   let best = null;
   for (const ch of CHAINS) for (const side of ["L", "R"]) {
-    const key = ch.id + side; if (key === exclude) continue;
-    const vals = win.map(h => h.a[key]).filter(v => v != null); if (vals.length < win.length * 0.8) continue;
+    const key = ch.id + side; if (key === exclude) continue; if (kinds && !kinds.includes(ch.kind)) continue;
+    const vals = win.map(h => h.a[key]).filter(v => v != null); if (vals.length < win.length * 0.9) continue;
     const lo = Math.min(...vals), hi = Math.max(...vals), swing = hi - lo; if (swing < DETECT.minSwing) continue;
-    // need one full rep: the window starts near the top, dips to the bottom, and ends near the top again
     const k = Math.max(3, Math.floor(vals.length * DETECT.edgeFrac)), mean = arr => arr.reduce((x, y) => x + y, 0) / arr.length;
     const head = mean(vals.slice(0, k)), tail = mean(vals.slice(-k)), band = swing * DETECT.bandFrac;
     if (head < hi - band || tail < hi - band) continue;
-    const mid = (lo + hi) / 2; let cross = 0; for (let i = 1; i < vals.length; i++) if ((vals[i - 1] < mid) !== (vals[i] < mid)) cross++;
-    if (cross < 2) continue;
-    if (!best || swing > best.swing) best = { chain: ch, side, swing, lo, hi };
+    // count dips below the midline; each must last a few frames, each top between dips too
+    const mid = (lo + hi) / 2, minRun = Math.max(2, Math.round(DETECT.dipMs * vals.length / (win[win.length - 1].t - win[0].t || 1)));
+    let dips = 0, run = 0, below = false, ok = true;
+    for (const v of vals) { const b = v < mid; if (b === below) { run++; continue; } if (run && run < minRun) ok = false; if (below) dips++; below = b; run = 1; }
+    if (!ok || dips < needReps) continue;
+    const score = swing * Math.min(dips, 3);
+    if (!best || score > best.score) best = { chain: ch, side, swing, lo, hi, score, dips };
   }
   return best;
 }
+// the exercise name hints which joints matter (optional — unknown names use every chain)
+const HINT = [
+  [/스쿼트|런지|레그|데드|힙|브릿지|브리지|점프|버피|스텝|카프|종아리|하체|허벅지|squat|lunge|leg|dead|hip|jump|burpee|calf/i, ["leg"]],
+  [/컬|프레스|푸시|푸쉬|팔굽혀|딥|로우|풀|레이즈|플라이|익스텐션|벤치|숄더|어깨|암|삼두|이두|턱걸이|친업|가슴|등|팔|press|curl|push|row|pull|raise|fly|dip|extension|bench|shoulder|chin/i, ["arm"]],
+];
+const hintKinds = name => { for (const [re, k] of HINT) if (re.test(name || "")) return k; return null; };
 
 // ---------- rep counter (same rules as 원 모어: hysteresis, time-based debounce, top turnaround, partial reps, velocity-based phase times) ----------
 const DEBOUNCE = { ms: 40, frames: 2 }, TURN = { frac: 0.6, drop: 12 }, RATE = { maxDegPerSec: 1500 }, PARTIAL = { minMs: 300, deep: 35, minRepSec: 0.25 };
@@ -388,7 +399,7 @@ class RepCounter {
 let W = null;   // the running workout
 function planFromForm() {
   const ex = exNames(); if (!ex.length) ex.push("운동");
-  return { ex, wt: num("wt", 0), rest: Math.max(0, Math.round(num("rest", 90))), reps: Math.max(1, Math.round(num("reps", 10))), sets: Math.max(1, Math.round(num("sets", 3))) };
+  return { ex, kinds: ex.map(hintKinds), wt: num("wt", 0), rest: Math.max(0, Math.round(num("rest", 90))), reps: Math.max(1, Math.round(num("reps", 10))), sets: Math.max(1, Math.round(num("sets", 3))) };
 }
 $("startBtn").onclick = async () => {
   const plan = planFromForm(); saveForm(); rememberEx(plan.ex);
@@ -409,7 +420,7 @@ function beginWorkout(plan) {
   for (const k in boneRef) delete boneRef[k]; for (const k in boneSeed) delete boneSeed[k]; personLock = null;
   renderLive(); say(`${plan.ex[0]} 시작. 동작을 하면 셉니다`);
 }
-const multi = () => W.plan.ex.length > 1, exName = () => W.plan.ex[W.exi], lastEx = () => W.exi >= W.plan.ex.length - 1;
+const multi = () => W.plan.ex.length > 1, exName = () => W.plan.ex[W.exi], lastEx = () => W.exi >= W.plan.ex.length - 1, exKinds = i => (W.plan.kinds || [])[i == null ? W.exi : i] || null;
 const blockReps = () => W.blocks.reduce((a, b) => a + b.reps, 0) + (W.counter ? W.counter.reps.length : 0);   // reps so far in this set, all movements
 function renderLive() {
   if (!W) return;
@@ -424,7 +435,7 @@ function renderLive() {
 }
 function chainAngles(L) {   // all candidate chain angles for this frame (null when a joint is not visible enough)
   const a = {};
-  for (const ch of CHAINS) for (const side of ["L", "R"]) { const ids = ch[side]; const ok = ids.every(i => (L[i].visibility ?? 1) >= DETECT.minVis); a[ch.id + side] = ok ? jointAngle(L[ids[0]], L[ids[1]], L[ids[2]]) : null; }
+  for (const ch of CHAINS) for (const side of ["L", "R"]) { const ids = ch[side]; const ok = ids.every(i => (L[i].visibility ?? 1) >= DETECT.minVis && L[i].x > DETECT.edge && L[i].x < 1 - DETECT.edge && L[i].y > DETECT.edge && L[i].y < 1 - DETECT.edge); a[ch.id + side] = ok ? jointAngle(L[ids[0]], L[ids[1]], L[ids[2]]) : null; }
   return a;
 }
 // close the current movement block (reps counted so far go to the current exercise)
@@ -461,7 +472,7 @@ function loop() {
   }
   requestAnimationFrame(loop);
 }
-const SWITCH = { quietMs: 1500 };   // a different movement takes over only after the current one has been still this long
+const SWITCH = { quietMs: 1500, firstMs: 4000 };   // a different movement takes over only after the current one has been still this long (longer before the first rep)
 function step(now) {
   const L = W.lastPose;
   if (W.phase === "rest") {
@@ -471,18 +482,18 @@ function step(now) {
     $("status").textContent = `${W.set} / ${W.plan.sets} 세트 시작 전 휴식`; $("status").className = "";
     if (left <= 0) { nextSet(); return; }
     // a full rep during the rest starts the next set early
-    if (L) { W.hist.push({ t: now, a: chainAngles(L) }); if (W.hist.length > 300) W.hist.shift(); const d = detectMovement(W.hist, now);
+    if (L) { W.hist.push({ t: now, a: chainAngles(L) }); if (W.hist.length > 600) W.hist.shift(); const d = detectMovement(W.hist, now, null, exKinds(0));
       if (d) { const hist = W.hist; nextSet(); if (!W.chain || W.chain.id + W.side !== d.chain.id + d.side) { W.hist = hist; lockMovement(d, now); } else { for (const h of hist) { const v = h.a[d.chain.id + d.side]; if (v != null) W.counter.feed(v, h.t); } renderLive(); if (W.counter.reps.length >= W.plan.reps) onRep(); } } }
     return;
   }
   if (!L) { $("status").textContent = "사람이 보이지 않아요 — 카메라 앞에 서 주세요"; $("status").className = "warn"; $("frame").className = "bad"; return; }
   const ang = chainAngles(L);
-  W.hist.push({ t: now, a: ang }); if (W.hist.length > 300) W.hist.shift();
+  W.hist.push({ t: now, a: ang }); if (W.hist.length > 600) W.hist.shift();
   if (W.phase === "detect") {
     const anyVisible = Object.values(ang).some(v => v != null);
     $("frame").className = anyVisible ? "ok" : "bad";
     $("status").textContent = anyVisible ? `${exName()} — 동작을 한 번 하면 인식합니다` : "팔이나 다리가 화면에 보여야 해요"; $("status").className = anyVisible ? "" : "warn";
-    const d = detectMovement(W.hist, now); if (d) lockMovement(d, now);
+    const d = detectMovement(W.hist, now, null, exKinds()); if (d) lockMovement(d, now);
     return;
   }
   // counting the locked movement
@@ -494,9 +505,14 @@ function step(now) {
     if (r === "partial") { beep(400, 120); $("status").textContent = `얕은 동작 (부분 ${W.counter.partial})`; return; }
     const n = W.counter.reps.length; $("status").textContent = n ? `${n}회 · ${W.plan.reps - n > 0 ? W.plan.reps - n + "개 남음" : "목표 달성"}` : "셉니다";
   } else { $("status").textContent = `${W.chain.label}이 안 보여요 — 프레임 안으로`; $("status").className = "warn"; $("frame").className = "bad"; }
-  // a different movement while the current one is quiet: in a superset it means the next exercise started early; otherwise it joins this exercise
-  const quiet = now - (W.counter.tLastRep || W.setStart) > SWITCH.quietMs;
-  if (quiet) { const d = detectMovement(W.hist, now, W.chain.id + W.side); if (d) { if (multi() && !lastEx() && W.counter.reps.length) { const hist = W.hist; closeBlock(); startExercise(W.exi + 1, now); W.hist = hist; } lockMovement(d, now); } }
+  // a different movement while the current one is quiet. In a superset a movement that fits the NEXT exercise (two clear reps) means it started
+  // early; one that fits the current exercise's joints replaces a wrong lock. Nothing else switches.
+  const n = W.counter.reps.length, quiet = now - (W.counter.tLastRep || W.setStart) > (n ? SWITCH.quietMs : SWITCH.firstMs);
+  if (quiet) {
+    const cur = W.chain.id + W.side;
+    if (multi() && !lastEx() && n) { const d = detectMovement(W.hist, now, cur, exKinds(W.exi + 1), 2); if (d) { const hist = W.hist; closeBlock(); startExercise(W.exi + 1, now); W.hist = hist; lockMovement(d, now); return; } }
+    const d = detectMovement(W.hist, now, cur, exKinds(), 2); if (d && (!n || d.swing > W.counter.hi - W.counter.lo)) lockMovement(d, now);
+  }
 }
 function onRep() {
   const n = W.counter.reps.length; $("bigN").textContent = n;
