@@ -403,7 +403,7 @@ let visionMod = null;
 async function vision() { if (!visionMod) visionMod = await import(VISION_URL); return visionMod; }
 
 const $ = id => document.getElementById(id);
-const APP_VERSION = "2026-10-13a";
+const APP_VERSION = "2026-10-13b";
 // ---------- app shell: service worker + "add to home screen" ----------
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 let installEvt = null;
@@ -651,12 +651,32 @@ async function loadPose() {
   if (landmarker && loadedTier === modelTier) return;
   const { PoseLandmarker, FilesetResolver } = await vision();
   const vision_ = await FilesetResolver.forVisionTasks(VISION_URL + "/wasm");
-  const opts = d => ({ baseOptions: { modelAssetPath: MODELS[modelTier], delegate: d }, runningMode: "VIDEO", numPoses: 1 });
-  const old = landmarker; landmarker = null;
-  try { landmarker = await PoseLandmarker.createFromOptions(vision_, opts("GPU")); delegateUsed = "GPU"; }
-  catch { landmarker = await PoseLandmarker.createFromOptions(vision_, opts("CPU")); delegateUsed = "CPU"; }   // some phones/browsers have no WebGL for the GPU delegate
-  loadedTier = modelTier; sm = null;
-  try { if (old) old.close(); } catch {}
+  // main: VIDEO mode (tracks people between frames, cheap). fallback: IMAGE mode (full detection every call) used only
+  // while the locked person has gone missing — the tracker tends to drop a bent-over lifter when a spotter overlaps.
+  const opts = (d, mode, n) => ({ baseOptions: { modelAssetPath: MODELS[modelTier], delegate: d }, runningMode: mode, numPoses: n });
+  const old = landmarker, oldImg = landmarkerImg; landmarker = null; landmarkerImg = null;
+  try { landmarker = await PoseLandmarker.createFromOptions(vision_, opts("GPU", "VIDEO", PERSON.maxPoses)); delegateUsed = "GPU"; }
+  catch { landmarker = await PoseLandmarker.createFromOptions(vision_, opts("CPU", "VIDEO", PERSON.maxPoses)); delegateUsed = "CPU"; }   // some phones/browsers have no WebGL for the GPU delegate
+  try { landmarkerImg = await PoseLandmarker.createFromOptions(vision_, opts(delegateUsed, "IMAGE", PERSON.maxPoses + 1)); } catch { landmarkerImg = null; }
+  loadedTier = modelTier; sm = null; personLock = null;
+  try { if (old) old.close(); if (oldImg) oldImg.close(); } catch {}
+}
+// ---------- person lock: in a gym there are other people in frame. Follow the one we started with. ----------
+const PERSON = { maxPoses: 2, jumpFrac: 1.2, jumpMin: 0.2, relockFrames: 30, fallbackAfter: 8 };
+let landmarkerImg = null, personLock = null, personLost = 0, personCount = 0;
+const personCenter = L => ({ x: (L[11].x + L[12].x + L[23].x + L[24].x) / 4, y: (L[11].y + L[12].y + L[23].y + L[24].y) / 4, size: Math.hypot(L[11].x - L[23].x, L[11].y - L[23].y) });
+function pickPerson(list) {
+  personCount = list ? list.length : 0;
+  if (!list || !list.length) { personLost++; return null; }
+  const cs = list.map(personCenter);
+  if (!personLock || personLost > PERSON.relockFrames) {   // nothing locked (or lost for ~1 s): take the largest person = the one closest to the phone
+    let k = 0; cs.forEach((c, i) => { if (c.size > cs[k].size) k = i; });
+    personLock = { ...cs[k] }; personLost = 0; return list[k];
+  }
+  let k = 0, bd = Infinity; cs.forEach((c, i) => { const d = Math.hypot(c.x - personLock.x, c.y - personLock.y); if (d < bd) { bd = d; k = i; } });
+  if (bd > Math.max(PERSON.jumpMin, personLock.size * PERSON.jumpFrac)) { personLost++; return null; }   // only strangers in frame: hold
+  personLock = { x: personLock.x * 0.5 + cs[k].x * 0.5, y: personLock.y * 0.5 + cs[k].y * 0.5, size: personLock.size * 0.8 + cs[k].size * 0.2 }; personLost = 0;
+  return list[k];
 }
 let liveSide = 0;   // which side (0 = left ids, 1 = right ids) the analysis is using right now
 let lockedSide = null, sideVotes = [0, 0], sideLostSince = 0;   // side chosen during the spot test, kept for the whole set
@@ -734,14 +754,17 @@ function loop() {
     if (ts !== lastTs) {
       lastTs = ts;
       const res = landmarker.detectForVideo(video, ts);
-      rawPose = res.landmarks && res.landmarks[0] ? res.landmarks[0] : null;
+      rawPose = pickPerson(res.landmarks);
+      if (!rawPose && personLock && personLost >= PERSON.fallbackAfter && landmarkerImg) {   // the tracker lost our person: full re-detection
+        try { rawPose = pickPerson(landmarkerImg.detect(video).landmarks); } catch {}
+      }
       lastPose = smoothPose(rawPose, Date.now());
       updateVisible(lastPose);
       if (capture && capture.raw && lastPose) capture.raw.push({ t: Date.now() - capture.started, L: lastPose.map(q => ({ x: q.x, y: q.y, v: q.visibility ?? 1 })) });
       draw();
       if (workout) { stepWorkout(); clapToEnd(Date.now()); } else { analyze(); if (capture && capture.cfg.joints) stepWorkout(capture); }
     }
-    frames++; if (ts - fpsT > 1000) { $("fps").textContent = frames + " fps" + (delegateUsed ? " · " + delegateUsed : "") + (loadedTier === "full" ? " · 정밀" : " · 빠름"); frames = 0; fpsT = ts; }
+    frames++; if (ts - fpsT > 1000) { $("fps").textContent = frames + " fps" + (delegateUsed ? " · " + delegateUsed : "") + (loadedTier === "full" ? " · 정밀" : " · 빠름") + (personCount > 1 ? ` · ${personCount}명 중 잠금` : ""); frames = 0; fpsT = ts; }
   }
   requestAnimationFrame(loop);
 }
@@ -1936,7 +1959,7 @@ function leaveStage() {
   if (workout) endWorkout("뒤로가기");
   $("summary").hidden = true;
   try { video.srcObject?.getTracks().forEach(t => t.stop()); } catch {}
-  video.srcObject = null; lastPose = null; sm = null; for (const k in boneRef) delete boneRef[k]; for (const k in boneSeed) delete boneSeed[k]; lockedSide = null; autoCfg = null; selCfg = null; selected = []; visScore.fill(0); speechSynthesis.cancel();
+  video.srcObject = null; lastPose = null; sm = null; personLock = null; personLost = 0; for (const k in boneRef) delete boneRef[k]; for (const k in boneSeed) delete boneSeed[k]; lockedSide = null; autoCfg = null; selCfg = null; selected = []; visScore.fill(0); speechSynthesis.cancel();
   $("stage").hidden = true; $("setup").hidden = false; renderHome();
   $("start").disabled = false; $("start").querySelector(".ct").textContent = "카메라 켜기";
 };
