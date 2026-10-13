@@ -410,7 +410,7 @@ async function vision() { if (!visionMod) visionMod = await import(VISION_URL); 
 
 const $ = id => document.getElementById(id);
 const APP_VERSION = "2026-10-13f";
-// LITE: the "카운팅" edition — counting, rep timing, summary, history, replay only. Built from this file by tools/build-counting.py.
+// LITE flag (kept for experiments; the 카운팅 app is now its own file at counting/index.html)
 const LITE = false;
 // ---------- app shell: service worker + "add to home screen" ----------
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});

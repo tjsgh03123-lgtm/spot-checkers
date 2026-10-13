@@ -1,6 +1,6 @@
 // One More — service worker. App shell is cached so the app opens instantly / offline; the page itself is network-first so
 // updates arrive on the next launch. MediaPipe runtime + model are cached on first use (they are large, ~10 MB).
-const VERSION = "ct-1";
+const VERSION = "ct-2";
 const SHELL = ["./", "./index.html", "./manifest.json", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
