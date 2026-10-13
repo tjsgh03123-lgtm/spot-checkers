@@ -1,0 +1,37 @@
+,-----.        ,--.  ,--.  ,--.
+|  |) /_,--.,--|  |-.|  |-.|  |,---.,--.   ,--,--.--.,--,--.,---.
+|  .-.  |  ||  | .-. | .-. |  | .-. |  |.'.|  |  .--' ,-.  | .-. |
+|  '--' '  ''  | `-' | `-' |  \   --|   .'.   |  |  \ '-'  | '-' '
+`------' `----' `---' `---'`--'`----'--'   '--`--'   `--`--|  |-'
+                                                           `--'    
+Using passwords set in the BUBBLEWRAP_KEYSTORE_PASSWORD and BUBBLEWRAP_KEY_PASSWORD environmental variables.
+
+Building the Android App...
+	- Generated Android APK at ./app-release-signed.apk
+	- Generated Android App Bundle at ./app-release-bundle.aab
+total 2352
+drwxr-xr-x 9 runner runner    4096 Oct 13 13:30 .
+drwxr-xr-x 3 runner runner    4096 Oct 13 13:29 ..
+drwxr-xr-x 7 runner runner    4096 Oct 13 13:29 .git
+drwxr-xr-x 3 runner runner    4096 Oct 13 13:29 .github
+-rw-r--r-- 1 runner runner       0 Oct 13 13:29 .nojekyll
+drwxr-xr-x 2 runner runner    4096 Oct 13 13:29 .well-known
+-rw-r--r-- 1 runner runner  167571 Oct 13 13:29 404.html
+-rw-r--r-- 1 runner runner    3349 Oct 13 13:29 STORE_LISTING.md
+-rw-r--r-- 1 runner runner    1974 Oct 13 13:29 VIDEO_ANALYSIS_NOTES.md
+-rw-r--r-- 1 runner runner    2682 Oct 13 13:29 android.keystore
+-rw-r--r-- 1 runner runner 1028105 Oct 13 13:30 app-release-bundle.aab
+-rw-r--r-- 1 runner runner  960276 Oct 13 13:30 app-release-signed.apk
+-rw-r--r-- 1 runner runner     617 Oct 13 13:30 build.log
+drwxr-xr-x 3 runner runner    4096 Oct 13 13:29 counting
+drwxr-xr-x 2 runner runner    4096 Oct 13 13:29 icons
+-rw-r--r-- 1 runner runner  168360 Oct 13 13:29 index.html
+-rw-r--r-- 1 runner runner     657 Oct 13 13:29 manifest.json
+-rw-r--r-- 1 runner runner    2332 Oct 13 13:29 privacy.html
+-rw-r--r-- 1 runner runner    1664 Oct 13 13:29 sw.js
+drwxr-xr-x 2 runner runner    4096 Oct 13 13:29 tools
+drwxr-xr-x 6 runner runner    4096 Oct 13 13:30 twa-counting
+-rw-r--r-- 1 runner runner    1345 Oct 13 13:29 twa-manifest-counting.json
+-rw-r--r-- 1 runner runner    1301 Oct 13 13:29 twa-manifest.json
+-rw-r--r-- 1 runner runner 1028105 Oct 13 13:30 app-release-bundle.aab
+-rw-r--r-- 1 runner runner  960276 Oct 13 13:30 app-release-signed.apk
