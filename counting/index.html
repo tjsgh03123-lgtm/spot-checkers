@@ -97,7 +97,7 @@
 <div id="setup" class="screen">
   <h1>카운팅 <small>COUNTING</small></h1>
   <p class="sub">운동 이름과 목표만 정하고 시작하세요. 동작은 카메라가 알아서 인식해 셉니다.</p>
-  <div class="seg" id="segCat"><button data-v="body">맨몸운동</button><button data-v="weight">웨이트 트레이닝</button></div>
+  <div class="seg" id="segCat"><button data-v="body">맨몸운동</button><button data-v="weight">웨이트</button><button data-v="free">자유운동</button></div>
   <div class="field">
     <label>운동 이름 <span style="font-weight:400">(목록에서 고르거나 직접 입력)</span></label>
     <input id="exName" placeholder="예: 덤벨 컬" maxlength="30" autocomplete="off">
@@ -157,7 +157,7 @@
 </div>
 
 <script type="module">
-const APP_VERSION = "counting-2026-10-13b";
+const APP_VERSION = "counting-2026-10-13c";
 const $ = id => document.getElementById(id);
 const LS = k => { try { return localStorage.getItem("ct_" + k); } catch { return null; } };
 const SS = (k, v) => { try { localStorage.setItem("ct_" + k, v); } catch {} };
@@ -192,8 +192,9 @@ document.querySelectorAll(".stepper button").forEach(b => b.onclick = () => { co
 const CATS = {
   body:   { label: "맨몸운동", list: ["푸시업", "스쿼트", "런지", "턱걸이", "딥스", "버피", "싯업", "크런치", "레그 레이즈", "점핑 잭", "힙 브릿지", "스텝업"] },
   weight: { label: "웨이트 트레이닝", list: ["벤치프레스", "바벨 스쿼트", "데드리프트", "숄더프레스", "바벨 로우", "랫풀다운", "덤벨 컬", "레그프레스", "덤벨 로우", "사이드 레터럴 레이즈", "트라이셉스 푸시다운", "레그 익스텐션", "레그 컬", "인클라인 덤벨 프레스", "케이블 로우", "해머 컬"] },
+  free:   { label: "자유운동", list: [] },   // anything else: the name is typed in; weight is optional
 };
-let cat = LS("cat") === "body" ? "body" : "weight";
+let cat = CATS[LS("cat")] ? LS("cat") : "weight";
 function saveForm() { SS("form", JSON.stringify({ name: $("exName").value, wt: $("wt").value, rest: $("rest").value, reps: $("reps").value, sets: $("sets").value })); SS("cat", cat); }
 ["exName", "wt", "rest", "reps", "sets"].forEach(id => $(id).oninput = saveForm);
 try { const f = JSON.parse(LS("form") || "null"); if (f) { $("exName").value = f.name || ""; $("wt").value = f.wt || ""; $("rest").value = f.rest || 90; $("reps").value = f.reps || 10; $("sets").value = f.sets || 3; } } catch {}
@@ -201,6 +202,7 @@ function renderRecent() {
   const recent = JSON.parse(LS("names_" + cat) || "[]"), cur = $("exName").value.trim();
   $("segCat").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === cat));
   $("wtField").style.display = cat === "body" ? "none" : "";
+  $("exName").placeholder = cat === "free" ? "운동 이름을 입력하세요 (예: 케틀벨 스윙)" : "예: 덤벨 컬";
   const chip = (n, cls) => `<button class="${cls}${n === cur ? " on" : ""}" data-n="${n.replace(/"/g, "")}">${n}</button>`;
   $("recentNames").innerHTML = recent.map(n => chip(n, "recent")).join("");
   $("catNames").innerHTML = CATS[cat].list.filter(n => !recent.includes(n)).map(n => chip(n, "")).join("");
@@ -519,7 +521,7 @@ function renderHistory() {
     const d = new Date(s.at), day = d.toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "short" });
     if (day !== lastDay) { html += `<div class="day">${day}</div>`; lastDay = day; }
     const total = s.sets.reduce((a, x) => a + x.reps, 0);
-    html += `<div class="ses"><div class="h"><span>${s.cat === "body" ? "🤸 " : "🏋️ "}${s.name}${s.wt ? ` · ${s.wt}kg` : ""}</span><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
+    html += `<div class="ses"><div class="h"><span>${s.cat === "body" ? "🤸 " : s.cat === "free" ? "✨ " : "🏋️ "}${s.name}${s.wt ? ` · ${s.wt}kg` : ""}</span><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
       <div class="d">${s.sets.map(x => x.reps).join(" · ")} = ${total}회 · ${s.sets.length}세트${s.wt ? ` · 볼륨 ${Math.round(total * s.wt)}kg` : ""}</div></div>`;
   }
   list.innerHTML = html;
