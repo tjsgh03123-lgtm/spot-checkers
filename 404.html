@@ -143,7 +143,7 @@
   .kv { display: flex; justify-content: space-between; font-size: 16px; padding: 8px 12px; background: #141c26; border-radius: 10px; }
   .kv b { font-variant-numeric: tabular-nums; }
   #replay { position: fixed; inset: 0; z-index: 40; background: #0b0f14; display: flex; flex-direction: column; }
-  #rpVideo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+  #rpVideo { position: absolute; left: 0; top: 0; width: 2px; height: 2px; opacity: 0.01; pointer-events: none; }   /* decoded off-screen; drawReplay paints it onto the canvas */
   #rpCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   .rpTop { position: relative; display: flex; justify-content: space-between; align-items: center; padding: calc(env(safe-area-inset-top,0px) + 12px) 16px 8px;
     font-size: 15px; font-variant-numeric: tabular-nums; }
@@ -407,7 +407,7 @@ let visionMod = null;
 async function vision() { if (!visionMod) visionMod = await import(VISION_URL); return visionMod; }
 
 const $ = id => document.getElementById(id);
-const APP_VERSION = "2026-10-13c";
+const APP_VERSION = "2026-10-13d";
 // ---------- app shell: service worker + "add to home screen" ----------
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 let installEvt = null;
@@ -1483,6 +1483,7 @@ function endWorkout(reason) {
                   at: new Date().toISOString(), reps: r, partial: w.partial, frames: w.frames, started: w.started,
                   ref: null, weight: w.weight || undefined, model: loadedTier || undefined, delegate: delegateUsed || undefined, track: TRACK,
                   effort: effort ? { vl: effort.vl, band: effort.band.label, rir: effort.rirCal != null ? String(effort.rirCal) : effort.band.rir, cal: effort.rirCal != null } : undefined, toFailure: w.toFailure || undefined,
+                  cam: video.videoWidth ? { w: video.videoWidth, h: video.videoHeight } : undefined,
                   cfg: w.cfg.auto ? { joints: w.cfg.joints, names: w.cfg.names, label: w.cfg.label, anchor: w.cfg.anchor, load: w.cfg.load, both: w.cfg.both, auto: true, view: w.cfg.view, kind: w.cfg.kind, trace: w.cfg.trace } : undefined };
   const stored = { ...lastSession, clipStart: 0 };
   sessions.push(stored);
@@ -1578,9 +1579,20 @@ function drawReplay() {
   if (c.width !== c.clientWidth || c.height !== c.clientHeight) { c.width = c.clientWidth; c.height = c.clientHeight; }
   const W = c.width, H = c.height; g.clearRect(0, 0, W, H);
   const fr = rp.s.frames, from = rp.from ?? 0, to = rp.to ?? fr.length, f = fr[rp.i];
-  // map normalized coords the same way the footage is shown (object-fit: cover); plain fill without footage
-  const v = rp.video, vw = v && v.videoWidth || 0, vh = v && v.videoHeight || 0;
+  // The footage is drawn onto this canvas by hand (not by the <video> element's object-fit), so the joints and the picture always
+  // share one transform. The landmarks were computed on the camera frame of size s.cam (w×h); if the clip was encoded in the
+  // other orientation (some browsers record the unrotated sensor frame), it is rotated back into that frame before drawing.
+  const v = rp.video, ready = v && v.readyState >= 2 && v.videoWidth > 0;
+  const cam = rp.s.cam && rp.s.cam.w ? rp.s.cam : (ready ? { w: v.videoWidth, h: v.videoHeight } : null);
+  const vw = cam ? cam.w : 0, vh = cam ? cam.h : 0;
   const fm = vw ? fitMap(vw, vh, W, H) : { s: 0, ox: 0, oy: 0 }, sc = fm.s, ox = fm.ox, oy = fm.oy;
+  if (ready && vw) {
+    const swapped = (v.videoWidth > v.videoHeight) !== (vw > vh);
+    g.save(); g.translate(ox, oy); g.scale(sc, sc);
+    if (swapped) { g.translate(vw / 2, vh / 2); g.rotate(Math.PI / 2); g.drawImage(v, -vh / 2, -vw / 2, vh, vw); }
+    else g.drawImage(v, 0, 0, vw, vh);
+    g.restore();
+  }
   const P = (fr0, j) => vw ? [ox + fr0[2 + TI[j] * 2] / 1000 * vw * sc, oy + fr0[3 + TI[j] * 2] / 1000 * vh * sc]
                            : [fr0[2 + TI[j] * 2] / 1000 * W, fr0[3 + TI[j] * 2] / 1000 * H];
   const sideOf = fr0 => fr0[2 + TRACK_RP.length * 2] || 0;
