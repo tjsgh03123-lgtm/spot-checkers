@@ -1,0 +1,16 @@
+# Fetches the MediaPipe pose models (and the wasm runtime) and stores them on the 'assets' branch, so offline
+# analysis of recorded videos can run with exactly the models the app uses. Run from the Actions tab.
+name: assets
+on: { workflow_dispatch: {} }
+permissions: { contents: write }
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          mkdir -p out/models out/wasm && cd out
+          for m in lite full heavy; do curl -sSL -o models/pose_landmarker_$m.task "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_$m/float16/1/pose_landmarker_$m.task"; done
+          curl -sSL -o tv.tgz "https://registry.npmjs.org/@mediapipe/tasks-vision/-/tasks-vision-0.10.14.tgz" && tar xzf tv.tgz && cp -r package/wasm/* wasm/ && cp package/vision_bundle.mjs wasm/ && rm -rf package tv.tgz
+          ls -la models wasm
+          git init -q && git config user.name ci && git config user.email ci@ci && git add . && git commit -qm "mediapipe pose models + wasm $GITHUB_RUN_ID"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" HEAD:assets
