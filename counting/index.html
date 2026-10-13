@@ -150,7 +150,7 @@
 </div>
 
 <script type="module">
-const APP_VERSION = "counting-2026-10-13e";
+const APP_VERSION = "counting-2026-10-13f";
 const $ = id => document.getElementById(id);
 const LS = k => { try { return localStorage.getItem("ct_" + k); } catch { return null; } };
 const SS = (k, v) => { try { localStorage.setItem("ct_" + k, v); } catch {} };
@@ -417,7 +417,7 @@ function loop() {
   }
   requestAnimationFrame(loop);
 }
-const SWITCH = { quietMs: 2500 };   // a different movement takes over only after the current one has been still this long (superset / circuit)
+const SWITCH = { quietMs: 1500 };   // a different movement takes over only after the current one has been still this long (superset / circuit)
 function step(now) {
   const L = W.lastPose;
   if (W.phase === "rest") {
