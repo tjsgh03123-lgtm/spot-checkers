@@ -42,9 +42,6 @@
   .field input::placeholder { color: #3b4a5a; }
   .exRow { display: flex; gap: 8px; align-items: center; }
   .exRow input { flex: 1; }
-  .exRow .x { width: 40px; height: 40px; padding: 0; border-radius: 50%; font-size: 20px; color: var(--muted); flex: 0 0 auto; }
-  .exRow .no { color: var(--accent); font-weight: 900; font-size: 16px; width: 18px; flex: 0 0 auto; }
-  .addEx { padding: 10px; font-size: 15px; color: var(--accent); }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chips button { width: auto; padding: 9px 14px; font-size: 15px; border-radius: 999px; font-weight: 700; }
@@ -102,7 +99,7 @@
 <div id="setup" class="screen">
   <h1>카운팅 <small>COUNTING</small></h1>
   <p class="sub">운동 이름과 목표만 정하고 시작하세요. 동작은 카메라가 알아서 인식해 셉니다.</p>
-  <div class="field"><label>운동 (슈퍼세트는 운동을 추가)</label><div id="exList" style="display:flex;flex-direction:column;gap:8px"></div><div class="chips" id="exRecent"></div><button class="ghost addEx" id="addEx">+ 운동 추가</button></div>
+  <div class="field"><label>운동 이름 (선택)</label><input id="ex" type="text" placeholder="예: 덤벨 컬, 스쿼트" maxlength="24"><div class="chips" id="exRecent"></div></div>
   <div class="grid2">
     <div class="field" id="wtField"><label>무게 (kg, 선택)</label><input id="wt" type="number" inputmode="decimal" step="0.5" min="0" placeholder="0"></div>
     <div class="field"><label>쉬는 시간 (초)</label><div class="stepper"><button data-k="rest" data-d="-15">−</button><input id="rest" type="number" inputmode="numeric" min="0" step="15" value="90"><button data-k="rest" data-d="15">+</button></div></div>
@@ -156,7 +153,7 @@
 </div>
 
 <script type="module">
-const APP_VERSION = "counting-2026-10-13h";
+const APP_VERSION = "counting-2026-10-14a";
 const $ = id => document.getElementById(id);
 const LS = k => { try { return localStorage.getItem("ct_" + k); } catch { return null; } };
 const SS = (k, v) => { try { localStorage.setItem("ct_" + k, v); } catch {} };
@@ -187,29 +184,16 @@ $("histBack").onclick = $("setBack").onclick = $("sumBack").onclick = $("homeBtn
 // ---------- setup form ----------
 const num = (id, d) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; };
 document.querySelectorAll(".stepper button").forEach(b => b.onclick = () => { const el = $(b.dataset.k), min = +el.min || 0; el.value = Math.max(min, num(b.dataset.k, min) + (+b.dataset.d)); saveForm(); });
-function saveForm() { SS("form", JSON.stringify({ ex: exNames(true), wt: $("wt").value, rest: $("rest").value, reps: $("reps").value, sets: $("sets").value })); }
-["wt", "rest", "reps", "sets"].forEach(id => $(id).oninput = saveForm);
-// exercise list: one row per exercise; two or more rows = superset / circuit done in that order, same weight·rest·reps·sets for all
-const exNames = raw => [...document.querySelectorAll("#exList input")].map(i => i.value.trim()).filter((v, i) => raw || v);
-function renderEx(list) {
-  const el = $("exList"); el.innerHTML = "";
-  list.forEach((v, i) => { const row = document.createElement("div"); row.className = "exRow";
-    row.innerHTML = `<span class="no">${list.length > 1 ? i + 1 : ""}</span><input type="text" placeholder="${i ? "두 번째 운동" : "예: 덤벨 컬"}" maxlength="24"><button class="x" ${list.length > 1 ? "" : "hidden"}>×</button>`;
-    row.querySelector("input").value = v; row.querySelector("input").oninput = saveForm;
-    row.querySelector(".x").onclick = () => { const l = exNames(true); l.splice(i, 1); renderEx(l); saveForm(); };
-    el.appendChild(row); });
-  renderRecent();
+function saveForm() { SS("form", JSON.stringify({ ex: $("ex").value, wt: $("wt").value, rest: $("rest").value, reps: $("reps").value, sets: $("sets").value })); }
+["ex", "wt", "rest", "reps", "sets"].forEach(id => $(id).oninput = saveForm);
+$("ex").oninput = () => { saveForm(); renderRecent(); };
+function renderRecent() {   // recently used exercise names, one tap to fill in
+  const rec = JSON.parse(LS("recentEx") || "[]"), cur = $("ex").value.trim(); const el = $("exRecent"); el.innerHTML = "";
+  rec.filter(n => n !== cur).slice(0, 8).forEach(n => { const b = document.createElement("button"); b.className = "recent"; b.textContent = n; b.onclick = () => { $("ex").value = n; saveForm(); renderRecent(); }; el.appendChild(b); });
 }
-function renderRecent() {
-  const rec = JSON.parse(LS("recentEx") || "[]"), cur = exNames(); const el = $("exRecent"); el.innerHTML = "";
-  rec.filter(n => !cur.includes(n)).slice(0, 8).forEach(n => { const b = document.createElement("button"); b.className = "recent"; b.textContent = n;
-    b.onclick = () => { const l = exNames(true), k = l.findIndex(v => !v); if (k >= 0) l[k] = n; else l.push(n); renderEx(l); saveForm(); }; el.appendChild(b); });
-}
-function rememberEx(names) { const rec = JSON.parse(LS("recentEx") || "[]"); for (const n of names) { if (!n || n === "운동") continue; const i = rec.indexOf(n); if (i >= 0) rec.splice(i, 1); rec.unshift(n); } SS("recentEx", JSON.stringify(rec.slice(0, 12))); }
-$("addEx").onclick = () => { const l = exNames(true); l.push(""); renderEx(l); saveForm(); setTimeout(() => { const ins = document.querySelectorAll("#exList input"); ins[ins.length - 1].focus(); }, 0); };
-let exInit = [""];
-try { const f = JSON.parse(LS("form") || "null"); if (f) { $("wt").value = f.wt || ""; $("rest").value = f.rest || 90; $("reps").value = f.reps || 10; $("sets").value = f.sets || 3; if (Array.isArray(f.ex) && f.ex.length) exInit = f.ex; } } catch {}
-renderEx(exInit);
+function rememberEx(n) { if (!n || n === "운동") return; const rec = JSON.parse(LS("recentEx") || "[]"); const i = rec.indexOf(n); if (i >= 0) rec.splice(i, 1); rec.unshift(n); SS("recentEx", JSON.stringify(rec.slice(0, 12))); }
+try { const f = JSON.parse(LS("form") || "null"); if (f) { $("ex").value = typeof f.ex === "string" ? f.ex : (Array.isArray(f.ex) ? f.ex[0] || "" : ""); $("wt").value = f.wt || ""; $("rest").value = f.rest || 90; $("reps").value = f.reps || 10; $("sets").value = f.sets || 3; } } catch {}
+renderRecent();
 
 // ---------- audio ----------
 let audioCtx = null, lastSpokeAt = 0;
@@ -398,14 +382,14 @@ class RepCounter {
 // ---------- workout ----------
 let W = null;   // the running workout
 function planFromForm() {
-  const ex = exNames(); if (!ex.length) ex.push("운동");
-  return { ex, kinds: ex.map(hintKinds), wt: num("wt", 0), rest: Math.max(0, Math.round(num("rest", 90))), reps: Math.max(1, Math.round(num("reps", 10))), sets: Math.max(1, Math.round(num("sets", 3))) };
+  const ex = $("ex").value.trim() || "운동";
+  return { ex, kinds: hintKinds(ex), wt: num("wt", 0), rest: Math.max(0, Math.round(num("rest", 90))), reps: Math.max(1, Math.round(num("reps", 10))), sets: Math.max(1, Math.round(num("sets", 3))) };
 }
 $("startBtn").onclick = async () => {
-  const plan = planFromForm(); saveForm(); rememberEx(plan.ex);
+  const plan = planFromForm(); saveForm(); rememberEx(plan.ex); renderRecent();
   $("err").textContent = ""; $("startBtn").disabled = true; $("startBtn").textContent = "카메라 켜는 중…";
   try {
-    show("live"); $("liveName").textContent = plan.ex.join(" + "); $("status").textContent = "카메라 켜는 중…";
+    show("live"); $("liveName").textContent = plan.ex; $("status").textContent = "카메라 켜는 중…";
     await startCamera();
     $("status").textContent = "관절 인식 모델 준비 중…"; await loadPose();
     beginWorkout(plan);
@@ -416,47 +400,33 @@ $("startBtn").onclick = async () => {
   if (W) requestAnimationFrame(loop);
 };
 function beginWorkout(plan) {
-  W = { plan, set: 1, sets: [], phase: "detect", exi: 0, locks: plan.ex.map(() => null), counter: null, chain: null, side: null, blocks: [], hist: [], lastPose: null, rawPose: null, restUntil: 0, restSaid: -1, setStart: 0, lastTs: -1, started: Date.now() };
+  W = { plan, set: 1, sets: [], phase: "detect", counter: null, chain: null, side: null, hist: [], lastPose: null, rawPose: null, restUntil: 0, restSaid: -1, setStart: 0, lastTs: -1, started: Date.now() };
   for (const k in boneRef) delete boneRef[k]; for (const k in boneSeed) delete boneSeed[k]; personLock = null;
-  renderLive(); say(`${plan.ex[0]} 시작. 동작을 하면 셉니다`);
+  renderLive(); say(`${plan.ex} 시작. 동작을 하면 셉니다`);
 }
-const multi = () => W.plan.ex.length > 1, exName = () => W.plan.ex[W.exi], lastEx = () => W.exi >= W.plan.ex.length - 1, exKinds = i => (W.plan.kinds || [])[i == null ? W.exi : i] || null;
-const blockReps = () => W.blocks.reduce((a, b) => a + b.reps, 0) + (W.counter ? W.counter.reps.length : 0);   // reps so far in this set, all movements
+const curReps = () => W.counter ? W.counter.reps.length : 0;
 function renderLive() {
   if (!W) return;
-  $("liveSet").textContent = `${W.set} / ${W.plan.sets} 세트`;
-  $("liveName").textContent = multi() ? `${exName()}  (${W.exi + 1}/${W.plan.ex.length})` : exName();
-  $("skipRestBtn").hidden = W.phase !== "rest"; $("endSetBtn").hidden = W.phase === "rest"; $("endSetBtn").textContent = multi() && !lastEx() ? "다음 운동" : "세트 끝내기";
-  if (W.phase === "rest") { $("bigN").className = "n rest"; $("bigT").textContent = "휴식 · 동작을 시작하면 다음 세트"; $("bigG").textContent = `다음: ${W.set} / ${W.plan.sets} 세트 · ${W.plan.ex[0]}`; return; }
-  $("bigN").className = "n"; $("bigN").textContent = W.counter ? W.counter.reps.length : 0;
+  $("liveSet").textContent = `${W.set} / ${W.plan.sets} 세트`; $("liveName").textContent = W.plan.ex;
+  $("skipRestBtn").hidden = W.phase !== "rest"; $("endSetBtn").hidden = W.phase === "rest";
+  if (W.phase === "rest") { $("bigN").className = "n rest"; $("bigT").textContent = "휴식 · 동작을 시작하면 다음 세트"; $("bigG").textContent = `다음: ${W.set} / ${W.plan.sets} 세트`; return; }
+  $("bigN").className = "n"; $("bigN").textContent = curReps();
   $("bigT").textContent = W.phase === "detect" ? "동작을 시작하세요" : (W.chain ? `${W.chain.label} ${W.side === "L" ? "왼쪽" : "오른쪽"}` : "");
-  const prev = W.blocks.filter(b => b.ex !== W.exi || !multi()).map(b => (multi() ? W.plan.ex[b.ex] + " " : "") + b.reps);
-  $("bigG").textContent = `목표 ${W.plan.reps}회` + (W.plan.wt ? ` · ${W.plan.wt}kg` : "") + (prev.length ? ` · ${prev.join(" + ")}` : "");
+  $("bigG").textContent = `목표 ${W.plan.reps}회` + (W.plan.wt ? ` · ${W.plan.wt}kg` : "");
 }
-function chainAngles(L) {   // all candidate chain angles for this frame (null when a joint is not visible enough)
+function chainAngles(L) {   // all candidate chain angles for this frame (null when a joint is not visible enough or outside the frame)
   const a = {};
   for (const ch of CHAINS) for (const side of ["L", "R"]) { const ids = ch[side]; const ok = ids.every(i => (L[i].visibility ?? 1) >= DETECT.minVis && L[i].x > DETECT.edge && L[i].x < 1 - DETECT.edge && L[i].y > DETECT.edge && L[i].y < 1 - DETECT.edge); a[ch.id + side] = ok ? jointAngle(L[ids[0]], L[ids[1]], L[ids[2]]) : null; }
   return a;
 }
-// close the current movement block (reps counted so far go to the current exercise)
-function closeBlock() { if (W.counter && W.counter.reps.length) W.blocks.push({ ex: W.exi, chain: W.chain.id + W.side, reps: W.counter.reps.length, partial: W.counter.partial }); W.counter = null; }
-// lock onto a detected movement for the current exercise (remembered per exercise, so later sets count straight away)
+// lock onto the detected movement; the reps already in the window count
 function lockMovement(d, now) {
-  closeBlock();
   W.chain = d.chain; W.side = d.side;
-  W.counter = new RepCounter(Math.round(d.hi - d.swing * DETECT.upFrac), Math.round(d.lo + d.swing * DETECT.downFrac), d.lo, d.hi);
-  for (const h of W.hist) { const v = h.a[d.chain.id + d.side]; if (v != null) W.counter.feed(v, h.t); }   // the rep already done counts
-  W.locks[W.exi] = { chain: d.chain, side: d.side, counter: W.counter };
+  W.counter = new RepCounter(Math.round(d.hi - d.swing * DETECT.upFrac), Math.round(d.lo + d.swing * DETECT.downFrac), d.lo, d.hi); W.lock = W.counter;
+  for (const h of W.hist) { const v = h.a[d.chain.id + d.side]; if (v != null) W.counter.feed(v, h.t); }
   W.hist = []; W.phase = "count"; W.setStart = W.setStart || now;
   beep(880, 120, 2); say(`${d.chain.label} 인식. ${W.counter.reps.length || ""}`); renderLive();
   if (W.counter.reps.length >= W.plan.reps) onRep();
-}
-// move to exercise i of the plan: a known movement counts immediately, an unknown one waits for its first rep
-function startExercise(i, now) {
-  W.exi = i; W.hist = []; const lk = W.locks[i];
-  if (lk) { W.chain = lk.chain; W.side = lk.side; W.counter = new RepCounter(lk.counter.up, lk.counter.down, lk.counter.lo, lk.counter.hi); W.phase = "count"; }
-  else { W.chain = null; W.side = null; W.counter = null; W.phase = "detect"; }
-  renderLive();
 }
 function loop() {
   if (!W) return;
@@ -472,7 +442,7 @@ function loop() {
   }
   requestAnimationFrame(loop);
 }
-const SWITCH = { quietMs: 1500, firstMs: 4000 };   // a different movement takes over only after the current one has been still this long (longer before the first rep)
+const SWITCH = { firstMs: 4000 };   // a wrong lock (no rep counted for this long) may be replaced by a movement that shows two clear reps
 function step(now) {
   const L = W.lastPose;
   if (W.phase === "rest") {
@@ -482,7 +452,7 @@ function step(now) {
     $("status").textContent = `${W.set} / ${W.plan.sets} 세트 시작 전 휴식`; $("status").className = "";
     if (left <= 0) { nextSet(); return; }
     // a full rep during the rest starts the next set early
-    if (L) { W.hist.push({ t: now, a: chainAngles(L) }); if (W.hist.length > 600) W.hist.shift(); const d = detectMovement(W.hist, now, null, exKinds(0));
+    if (L) { W.hist.push({ t: now, a: chainAngles(L) }); if (W.hist.length > 600) W.hist.shift(); const d = detectMovement(W.hist, now, null, W.plan.kinds);
       if (d) { const hist = W.hist; nextSet(); if (!W.chain || W.chain.id + W.side !== d.chain.id + d.side) { W.hist = hist; lockMovement(d, now); } else { for (const h of hist) { const v = h.a[d.chain.id + d.side]; if (v != null) W.counter.feed(v, h.t); } renderLive(); if (W.counter.reps.length >= W.plan.reps) onRep(); } } }
     return;
   }
@@ -492,8 +462,8 @@ function step(now) {
   if (W.phase === "detect") {
     const anyVisible = Object.values(ang).some(v => v != null);
     $("frame").className = anyVisible ? "ok" : "bad";
-    $("status").textContent = anyVisible ? `${exName()} — 동작을 한 번 하면 인식합니다` : "팔이나 다리가 화면에 보여야 해요"; $("status").className = anyVisible ? "" : "warn";
-    const d = detectMovement(W.hist, now, null, exKinds()); if (d) lockMovement(d, now);
+    $("status").textContent = anyVisible ? "동작을 한 번 하면 인식합니다" : "팔이나 다리가 화면에 보여야 해요"; $("status").className = anyVisible ? "" : "warn";
+    const d = detectMovement(W.hist, now, null, W.plan.kinds); if (d) lockMovement(d, now);
     return;
   }
   // counting the locked movement
@@ -505,45 +475,35 @@ function step(now) {
     if (r === "partial") { beep(400, 120); $("status").textContent = `얕은 동작 (부분 ${W.counter.partial})`; return; }
     const n = W.counter.reps.length; $("status").textContent = n ? `${n}회 · ${W.plan.reps - n > 0 ? W.plan.reps - n + "개 남음" : "목표 달성"}` : "셉니다";
   } else { $("status").textContent = `${W.chain.label}이 안 보여요 — 프레임 안으로`; $("status").className = "warn"; $("frame").className = "bad"; }
-  // a different movement while the current one is quiet. In a superset a movement that fits the NEXT exercise (two clear reps) means it started
-  // early; one that fits the current exercise's joints replaces a wrong lock. Nothing else switches.
-  const n = W.counter.reps.length, quiet = now - (W.counter.tLastRep || W.setStart) > (n ? SWITCH.quietMs : SWITCH.firstMs);
-  if (quiet) {
-    const cur = W.chain.id + W.side;
-    if (multi() && !lastEx() && n) { const d = detectMovement(W.hist, now, cur, exKinds(W.exi + 1), 2); if (d) { const hist = W.hist; closeBlock(); startExercise(W.exi + 1, now); W.hist = hist; lockMovement(d, now); return; } }
-    const d = detectMovement(W.hist, now, cur, exKinds(), 2); if (d && (!n || d.swing > W.counter.hi - W.counter.lo)) lockMovement(d, now);
-  }
+  // wrong joint? nothing counted for a while and another chain shows two clear reps → re-lock
+  if (!W.counter.reps.length && now - W.setStart > SWITCH.firstMs) { const d = detectMovement(W.hist, now, W.chain.id + W.side, W.plan.kinds, 2); if (d) lockMovement(d, now); }
 }
 function onRep() {
   const n = W.counter.reps.length; $("bigN").textContent = n;
   if (n < W.plan.reps) { beep(880, 70); say(String(n)); return; }
-  if (multi() && !lastEx()) { beep(880, 160, 2); closeBlock(); startExercise(W.exi + 1, Date.now()); say(`${n}. 다음, ${exName()}`); return; }
   beep(880, 160, 3); say(`${n}. 세트 완료`); finishSet();
 }
-function setRecord() {
-  const blocks = [...W.blocks]; if (W.counter && W.counter.reps.length) blocks.push({ ex: W.exi, chain: W.chain.id + W.side, reps: W.counter.reps.length, partial: W.counter.partial });
-  return { set: W.set, ex: blocks.map(b => b.ex), reps: blocks.map(b => b.reps), total: blocks.reduce((a, b) => a + b.reps, 0), partial: blocks.reduce((a, b) => a + b.partial, 0) };
-}
+function setRecord() { return { set: W.set, reps: curReps(), total: curReps(), partial: W.counter ? W.counter.partial : 0 }; }
 function finishSet() {
   const now = Date.now();
-  W.sets.push(setRecord()); W.blocks = []; W.counter = null;
+  W.sets.push(setRecord());
   if (W.set >= W.plan.sets) { endWorkout(false); return; }
-  W.phase = "rest"; W.restUntil = now + W.plan.rest * 1000; W.restSaid = -1; W.set++; W.hist = [];
+  W.phase = "rest"; W.restUntil = now + W.plan.rest * 1000; W.restSaid = -1; W.set++; W.hist = []; W.counter = null;
   if (W.plan.rest === 0) { nextSet(); return; }
   say(`${W.plan.rest}초 휴식`); renderLive();
 }
 function nextSet() {
-  W.restSaid = -1; W.setStart = Date.now(); W.blocks = [];
-  startExercise(0, W.setStart);
-  beep(880, 120, 2); say(`${W.set}세트 시작${multi() ? ", " + exName() : ""}`);
+  W.restSaid = -1; W.setStart = Date.now(); W.hist = [];
+  if (W.chain) { const lk = W.lock; W.counter = new RepCounter(lk.up, lk.down, lk.lo, lk.hi); W.phase = "count"; } else { W.counter = null; W.phase = "detect"; }
+  beep(880, 120, 2); say(`${W.set}세트 시작`); renderLive();
 }
-$("endSetBtn").onclick = () => { if (!W || W.phase === "rest") return; if (!blockReps()) { say("아직 센 횟수가 없어요"); return; } if (multi() && !lastEx()) { closeBlock(); startExercise(W.exi + 1, Date.now()); say(`다음, ${exName()}`); } else finishSet(); };
+$("endSetBtn").onclick = () => { if (!W || W.phase === "rest") return; if (!curReps()) { say("아직 센 횟수가 없어요"); return; } finishSet(); };
 $("skipRestBtn").onclick = () => { if (W && W.phase === "rest") nextSet(); };
 $("endBtn").onclick = () => endWorkout(false);
 $("liveBack").onclick = () => history.back();
 function endWorkout(fromBack) {
   if (!W) return;
-  if (W.phase !== "rest" && blockReps() && (!W.sets.length || W.sets[W.sets.length - 1].set !== W.set)) W.sets.push(setRecord());
+  if (W.phase !== "rest" && curReps() && (!W.sets.length || W.sets[W.sets.length - 1].set !== W.set)) W.sets.push(setRecord());
   const done = W; W = null; stopCamera(); try { speechSynthesis.cancel(); } catch {}
   if (!done.sets.length) { if (!fromBack) history.back(); return; }
   const session = { at: new Date().toISOString(), ex: done.plan.ex, wt: done.plan.wt, rest: done.plan.rest, goalReps: done.plan.reps, goalSets: done.plan.sets, sets: done.sets };
@@ -552,12 +512,12 @@ function endWorkout(fromBack) {
   if (fromBack) { try { history.pushState({ s: "summary" }, ""); } catch {} }
   for (const s of SCREENS) $(s).hidden = s !== "summary";
 }
-const repsText = (x, ex) => ex && ex.length > 1 ? x.reps.map((r, i) => `${ex[x.ex ? x.ex[i] : i] || ""} ${r}`).join(" + ") : x.reps.join(" + ");
+const repsText = x => Array.isArray(x.reps) ? x.reps.join(" + ") : String(x.reps);   // older records kept per-movement arrays
 function renderSummary(s) {
   const total = s.sets.reduce((a, x) => a + x.total, 0);
-  $("sumTitle").textContent = s.ex ? s.ex.join(" + ") : "운동 끝";
+  $("sumTitle").textContent = s.ex ? String(Array.isArray(s.ex) ? s.ex.join(" + ") : s.ex) : "운동 끝";
   $("sumTiles").innerHTML = `<div class="tile"><div class="k">세트</div><div class="v">${s.sets.length}<small>/${s.goalSets}</small></div></div><div class="tile"><div class="k">총 횟수</div><div class="v">${total}</div></div><div class="tile"><div class="k">세트당 목표</div><div class="v">${s.goalReps}</div></div>`;
-  $("sumSets").innerHTML = s.sets.map(x => `<div class="setRow ${x.total < s.goalReps ? "short" : ""}"><span>${x.set}세트</span><b>${repsText(x, s.ex)}회</b><span class="m">${x.partial ? `부분 ${x.partial}` : ""}</span></div>`).join("");
+  $("sumSets").innerHTML = s.sets.map(x => `<div class="setRow ${x.total < s.goalReps ? "short" : ""}"><span>${x.set}세트</span><b>${repsText(x)}회</b><span class="m">${x.partial ? `부분 ${x.partial}` : ""}</span></div>`).join("");
 }
 $("againBtn").onclick = () => { show("setup"); setTimeout(() => $("startBtn").click(), 50); };
 function renderHistory() {
@@ -568,8 +528,8 @@ function renderHistory() {
     const d = new Date(s.at), day = d.toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "short" });
     if (day !== lastDay) { html += `<div class="day">${day}</div>`; lastDay = day; }
     const total = s.sets.reduce((a, x) => a + x.total, 0);
-    html += `<div class="ses"><div class="h"><span>${s.ex ? s.ex.join(" + ") + " · " : ""}${total}회 · ${s.sets.length}세트</span><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
-      <div class="d">${s.sets.map(x => repsText(x, s.ex)).join(" / ")}${s.wt ? ` · ${s.wt}kg` : ""}</div></div>`;
+    html += `<div class="ses"><div class="h"><span>${s.ex ? (Array.isArray(s.ex) ? s.ex.join(" + ") : s.ex) + " · " : ""}${total}회 · ${s.sets.length}세트</span><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
+      <div class="d">${s.sets.map(x => repsText(x)).join(" / ")}${s.wt ? ` · ${s.wt}kg` : ""}</div></div>`;
   }
   list.innerHTML = html;
 }
