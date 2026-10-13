@@ -96,16 +96,9 @@
 <!-- 1. setup -->
 <div id="setup" class="screen">
   <h1>카운팅 <small>COUNTING</small></h1>
-  <p class="sub">운동 이름과 목표만 정하고 시작하세요. 동작은 카메라가 알아서 인식해 셉니다.</p>
-  <div class="seg" id="segCat"><button data-v="body">맨몸운동</button><button data-v="weight">웨이트</button><button data-v="free">자유운동</button></div>
-  <div class="field">
-    <label>운동 이름 <span style="font-weight:400">(목록에서 고르거나 직접 입력)</span></label>
-    <input id="exName" placeholder="예: 덤벨 컬" maxlength="30" autocomplete="off">
-    <div class="chips" id="recentNames"></div>
-    <div class="chips" id="catNames"></div>
-  </div>
+  <p class="sub">목표만 정하고 시작하세요. 어떤 동작이든 카메라가 알아서 인식해 셉니다.</p>
   <div class="grid2">
-    <div class="field" id="wtField"><label>무게 (kg)</label><input id="wt" type="number" inputmode="decimal" step="0.5" min="0" placeholder="0"></div>
+    <div class="field" id="wtField"><label>무게 (kg, 선택)</label><input id="wt" type="number" inputmode="decimal" step="0.5" min="0" placeholder="0"></div>
     <div class="field"><label>쉬는 시간 (초)</label><div class="stepper"><button data-k="rest" data-d="-15">−</button><input id="rest" type="number" inputmode="numeric" min="0" step="15" value="90"><button data-k="rest" data-d="15">+</button></div></div>
     <div class="field"><label>목표 횟수</label><div class="stepper"><button data-k="reps" data-d="-1">−</button><input id="reps" type="number" inputmode="numeric" min="1" value="10"><button data-k="reps" data-d="1">+</button></div></div>
     <div class="field"><label>목표 세트</label><div class="stepper"><button data-k="sets" data-d="-1">−</button><input id="sets" type="number" inputmode="numeric" min="1" value="3"><button data-k="sets" data-d="1">+</button></div></div>
@@ -157,7 +150,7 @@
 </div>
 
 <script type="module">
-const APP_VERSION = "counting-2026-10-13c";
+const APP_VERSION = "counting-2026-10-13d";
 const $ = id => document.getElementById(id);
 const LS = k => { try { return localStorage.getItem("ct_" + k); } catch { return null; } };
 const SS = (k, v) => { try { localStorage.setItem("ct_" + k, v); } catch {} };
@@ -188,29 +181,9 @@ $("histBack").onclick = $("setBack").onclick = $("sumBack").onclick = $("homeBtn
 // ---------- setup form ----------
 const num = (id, d) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; };
 document.querySelectorAll(".stepper button").forEach(b => b.onclick = () => { const el = $(b.dataset.k), min = +el.min || 0; el.value = Math.max(min, num(b.dataset.k, min) + (+b.dataset.d)); saveForm(); });
-// two categories, each with the exercises people do most; picking one fills the name. Bodyweight hides the weight field.
-const CATS = {
-  body:   { label: "맨몸운동", list: ["푸시업", "스쿼트", "런지", "턱걸이", "딥스", "버피", "싯업", "크런치", "레그 레이즈", "점핑 잭", "힙 브릿지", "스텝업"] },
-  weight: { label: "웨이트 트레이닝", list: ["벤치프레스", "바벨 스쿼트", "데드리프트", "숄더프레스", "바벨 로우", "랫풀다운", "덤벨 컬", "레그프레스", "덤벨 로우", "사이드 레터럴 레이즈", "트라이셉스 푸시다운", "레그 익스텐션", "레그 컬", "인클라인 덤벨 프레스", "케이블 로우", "해머 컬"] },
-  free:   { label: "자유운동", list: [] },   // anything else: the name is typed in; weight is optional
-};
-let cat = CATS[LS("cat")] ? LS("cat") : "weight";
-function saveForm() { SS("form", JSON.stringify({ name: $("exName").value, wt: $("wt").value, rest: $("rest").value, reps: $("reps").value, sets: $("sets").value })); SS("cat", cat); }
-["exName", "wt", "rest", "reps", "sets"].forEach(id => $(id).oninput = saveForm);
-try { const f = JSON.parse(LS("form") || "null"); if (f) { $("exName").value = f.name || ""; $("wt").value = f.wt || ""; $("rest").value = f.rest || 90; $("reps").value = f.reps || 10; $("sets").value = f.sets || 3; } } catch {}
-function renderRecent() {
-  const recent = JSON.parse(LS("names_" + cat) || "[]"), cur = $("exName").value.trim();
-  $("segCat").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === cat));
-  $("wtField").style.display = cat === "body" ? "none" : "";
-  $("exName").placeholder = cat === "free" ? "운동 이름을 입력하세요 (예: 케틀벨 스윙)" : "예: 덤벨 컬";
-  const chip = (n, cls) => `<button class="${cls}${n === cur ? " on" : ""}" data-n="${n.replace(/"/g, "")}">${n}</button>`;
-  $("recentNames").innerHTML = recent.map(n => chip(n, "recent")).join("");
-  $("catNames").innerHTML = CATS[cat].list.filter(n => !recent.includes(n)).map(n => chip(n, "")).join("");
-  document.querySelectorAll("#recentNames button, #catNames button").forEach(b => b.onclick = () => { $("exName").value = b.dataset.n; saveForm(); renderRecent(); });
-}
-$("segCat").onclick = e => { if (!e.target.dataset.v) return; cat = e.target.dataset.v; if (cat === "body") $("wt").value = ""; saveForm(); renderRecent(); };
-$("exName").addEventListener("input", renderRecent);
-renderRecent();
+function saveForm() { SS("form", JSON.stringify({ wt: $("wt").value, rest: $("rest").value, reps: $("reps").value, sets: $("sets").value })); }
+["wt", "rest", "reps", "sets"].forEach(id => $(id).oninput = saveForm);
+try { const f = JSON.parse(LS("form") || "null"); if (f) { $("wt").value = f.wt || ""; $("rest").value = f.rest || 90; $("reps").value = f.reps || 10; $("sets").value = f.sets || 3; } } catch {}
 
 // ---------- audio ----------
 let audioCtx = null, lastSpokeAt = 0;
@@ -383,15 +356,13 @@ class RepCounter {
 // ---------- workout ----------
 let W = null;   // the running workout
 function planFromForm() {
-  const name = ($("exName").value || "").trim() || "운동";
-  return { name, cat, wt: cat === "body" ? 0 : num("wt", 0), rest: Math.max(0, Math.round(num("rest", 90))), reps: Math.max(1, Math.round(num("reps", 10))), sets: Math.max(1, Math.round(num("sets", 3))) };
+  return { name: "운동", wt: num("wt", 0), rest: Math.max(0, Math.round(num("rest", 90))), reps: Math.max(1, Math.round(num("reps", 10))), sets: Math.max(1, Math.round(num("sets", 3))) };
 }
 $("startBtn").onclick = async () => {
   const plan = planFromForm(); saveForm();
-  const names = [plan.name, ...JSON.parse(LS("names_" + cat) || "[]").filter(n => n !== plan.name)].slice(0, 4); SS("names_" + cat, JSON.stringify(names)); renderRecent();
   $("err").textContent = ""; $("startBtn").disabled = true; $("startBtn").textContent = "카메라 켜는 중…";
   try {
-    show("live"); $("liveName").textContent = plan.name + (plan.wt ? ` · ${plan.wt}kg` : ""); $("status").textContent = "카메라 켜는 중…";
+    show("live"); $("liveName").textContent = (plan.wt ? `${plan.wt}kg · ` : "") + `목표 ${plan.reps}회 × ${plan.sets}세트`; $("status").textContent = "카메라 켜는 중…";
     await startCamera();
     $("status").textContent = "관절 인식 모델 준비 중…"; await loadPose();
     beginWorkout(plan);
@@ -404,7 +375,7 @@ $("startBtn").onclick = async () => {
 function beginWorkout(plan) {
   W = { plan, set: 1, sets: [], phase: "detect", counter: null, chain: null, side: null, hist: [], lastPose: null, rawPose: null, restUntil: 0, restSaid: -1, setStart: 0, lastTs: -1, fpsN: 0, fpsT: performance.now(), started: Date.now() };
   for (const k in boneRef) delete boneRef[k]; for (const k in boneSeed) delete boneSeed[k]; personLock = null;
-  renderLive(); say(`${plan.name} 시작. 동작을 하면 셉니다`);
+  renderLive(); say("시작. 동작을 하면 셉니다");
 }
 function renderLive() {
   if (!W) return;
@@ -500,7 +471,7 @@ function endWorkout(fromBack) {
   }
   const done = W; W = null; stopCamera(); try { speechSynthesis.cancel(); } catch {}
   if (!done.sets.length) { if (!fromBack) history.back(); return; }
-  const session = { at: new Date().toISOString(), name: done.plan.name, cat: done.plan.cat, wt: done.plan.wt, rest: done.plan.rest, goalReps: done.plan.reps, goalSets: done.plan.sets, sets: done.sets, chain: done.chain ? done.chain.id : null };
+  const session = { at: new Date().toISOString(), wt: done.plan.wt, rest: done.plan.rest, goalReps: done.plan.reps, goalSets: done.plan.sets, sets: done.sets, chain: done.chain ? done.chain.id : null };
   const all = JSON.parse(LS("sessions") || "[]"); all.push(session); SS("sessions", JSON.stringify(all.slice(-200)));
   renderSummary(session); say(`운동 끝. ${done.sets.length}세트, 총 ${done.sets.reduce((a, s) => a + s.reps, 0)}회`);
   if (fromBack) { try { history.pushState({ s: "summary" }, ""); } catch {} }
@@ -508,7 +479,7 @@ function endWorkout(fromBack) {
 }
 function renderSummary(s) {
   const total = s.sets.reduce((a, x) => a + x.reps, 0), goal = s.goalReps * s.goalSets;
-  $("sumTitle").textContent = `${s.name}${s.wt ? ` · ${s.wt}kg` : ""}`;
+  $("sumTitle").textContent = `운동 끝${s.wt ? ` · ${s.wt}kg` : ""}`;
   $("sumTiles").innerHTML = `<div class="tile"><div class="k">세트</div><div class="v">${s.sets.length}<small>/${s.goalSets}</small></div></div><div class="tile"><div class="k">총 횟수</div><div class="v">${total}<small>/${goal}</small></div></div><div class="tile"><div class="k">볼륨</div><div class="v">${s.wt ? Math.round(total * s.wt) : "-"}<small>${s.wt ? "kg" : ""}</small></div></div>`;
   $("sumSets").innerHTML = s.sets.map(x => `<div class="setRow ${x.reps < s.goalReps ? "short" : ""}"><span>${x.set}세트</span><b>${x.reps}회${x.partial ? ` <span style="font-size:14px;color:var(--muted)">+부분 ${x.partial}</span>` : ""}</b><span class="m">${x.sec}초${x.avgRep ? ` · 렙 ${x.avgRep}s` : ""}</span></div>`).join("");
 }
@@ -521,7 +492,7 @@ function renderHistory() {
     const d = new Date(s.at), day = d.toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "short" });
     if (day !== lastDay) { html += `<div class="day">${day}</div>`; lastDay = day; }
     const total = s.sets.reduce((a, x) => a + x.reps, 0);
-    html += `<div class="ses"><div class="h"><span>${s.cat === "body" ? "🤸 " : s.cat === "free" ? "✨ " : "🏋️ "}${s.name}${s.wt ? ` · ${s.wt}kg` : ""}</span><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
+    html += `<div class="ses"><div class="h"><span>${s.wt ? `${s.wt}kg` : "맨몸"} · 목표 ${s.goalReps}×${s.goalSets}</span><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
       <div class="d">${s.sets.map(x => x.reps).join(" · ")} = ${total}회 · ${s.sets.length}세트${s.wt ? ` · 볼륨 ${Math.round(total * s.wt)}kg` : ""}</div></div>`;
   }
   list.innerHTML = html;
