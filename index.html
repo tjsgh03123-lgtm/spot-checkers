@@ -120,6 +120,8 @@
   .tile .v { font-size: 30px; font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; margin-top: 2px; }
   .tile .v small { font-size: 14px; color: var(--muted); font-weight: 700; }
   .tile.fast .v { color: var(--ok); } .tile.slow .v { color: var(--bad); }
+  .tile.wide .v { font-size: 26px; } .tile.wide .v small { font-size: 15px; }
+  .tile.e0 .v { color: var(--ok); } .tile.e1 .v { color: #c5f03e; } .tile.e2 .v { color: #ffd166; } .tile.e3 .v { color: var(--bad); }
   .tile.ph1 .v { color: #c5f03e; } .tile.ph2 .v { color: #ffd166; } .tile.ph3 .v { color: #60a5fa; }
   .stack { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: #0f151d; }
   .stack i { display: block; height: 100%; } .stack .d { background: #c5f03e; } .stack .h { background: #ffd166; } .stack .u { background: #60a5fa; }
@@ -300,6 +302,7 @@
     <div class="sub">회</div>
     <div class="tiles" id="sumTiles"></div>
     <div class="tiles" id="sumPhase"></div>
+    <div class="tiles" id="sumEffort" style="grid-template-columns:1fr"></div>
     <div class="rows" id="sumList"></div>
     <div class="sub" id="sumLegend"></div>
     <details class="more" id="sumMore"><summary>지표 자세히</summary><div class="rows" id="sumRows"></div></details>
@@ -364,6 +367,7 @@
   <button class="card exCard" data-ex="row"><span class="ct">로우</span><span class="cs">어깨·팔꿈치·손목 · 측면 · 어깨 신전·몸통 반동</span></button>
   <button class="card exCard" data-ex="bench"><span class="ct">벤치프레스</span><span class="cs">어깨·팔꿈치·손목 · 측면 (팔꿈치 각도로 횟수)</span></button>
   <button class="card exCard" data-ex="shoulder"><span class="ct">숄더프레스</span><span class="cs">어깨·팔꿈치·손목 · 정면</span></button>
+  <div class="setRow"><span>이 세트는 실패까지 (개인 보정용)</span><div class="seg" id="segFail"><button data-v="0" class="on">아니오</button><button data-v="1">예</button></div></div>
   <div class="setRow"><span>중량 (kg)</span><input id="weightIn" type="number" inputmode="decimal" step="0.5" min="0" placeholder="0" style="width:110px;font:inherit;font-size:20px;font-weight:800;text-align:right;padding:8px 10px;border-radius:10px;border:1px solid #2a3642;background:#0f151d;color:var(--fg)"></div>
   <p class="sub" id="pickTip" style="color:var(--muted);margin:0"></p>
   <button class="card primary" id="start" style="margin-top:auto"><span class="ct">카메라 켜기</span><span class="cs" id="startSub">선택한 운동으로 시작</span></button>
@@ -403,7 +407,7 @@ let visionMod = null;
 async function vision() { if (!visionMod) visionMod = await import(VISION_URL); return visionMod; }
 
 const $ = id => document.getElementById(id);
-const APP_VERSION = "2026-10-13a";
+const APP_VERSION = "2026-10-13c";
 // ---------- app shell: service worker + "add to home screen" ----------
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 let installEvt = null;
@@ -1078,7 +1082,7 @@ function startWorkout(asReference = false) {
               tLeaveUp: 0, tEnterDown: 0, tLeaveDown: 0, tLastRep: 0, minAngle: 180, maxAngle: 0, started: 0, armed: true,
               frames: [], repStartFrame: 0, ref: null, weight: weightOf(exercise),
               ready: false, seenSince: 0, lastSaid: -1,
-              back: backActive(cfg) ? { view: camView === "side" ? "side" : "front", sel: backSel.slice(), base: null, ema: null, rep: null, saidAt: 0 } : null,
+              toFailure, back: backActive(cfg) ? { view: camView === "side" ? "side" : "front", sel: backSel.slice(), base: null, ema: null, rep: null, saidAt: 0 } : null,
               sideM: sideActive() ? { sel: sideSel.slice(), base: null, ema: null, rep: null, saidAt: 0 } : null };
   $("repBack").hidden = !workout.back; $("repBack").textContent = "";
   $("repSide").hidden = !workout.sideM; $("repSide").textContent = ""; clearGauges();
@@ -1218,6 +1222,9 @@ function stepWorkout(wArg) {
       // phase times from the angle velocity: 하강 = moving toward the bottom, 정지 = angle not changing near the bottom, 상승 = moving back up.
       // The threshold-based split put most of the movement between the down threshold and the bottom into "정지"; this is what the body actually did.
       const ph = phaseTimes(w.frames, rep.f0, rep.f1); if (ph) { rep.thrDown = rep.down; rep.thrHold = rep.hold; rep.thrUp = rep.up; Object.assign(rep, ph); }
+      // concentric velocity (deg/s) and velocity loss vs the fastest of the first two reps
+      const ct = rep[concentricKey(cfg)]; if (ph && ct > 0.05) rep.vel = Math.round(ph.rom / ct);
+      if (rep.vel) { if (w.reps.length < 2) w.vBest = Math.max(w.vBest || 0, rep.vel); rep.vl = Math.max(0, Math.round((1 - rep.vel / (w.vBest || rep.vel)) * 100)); }
       if (rep.down + rep.hold + rep.up < PARTIAL.minRepSec) { w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180; w.postMax = 0; w.deepMs = 0; return; }   // faster than a loaded limb can move: detector flutter, not a rep
       if (w.bal) { rep.bar = Math.round(w.bal.bar * 100); rep.sh = Math.round(w.bal.sh * 100); rep.diff = Math.round(w.bal.diff); w.bal = null; }
       if (w.back) Object.assign(rep, backRepValues(w));
@@ -1226,7 +1233,7 @@ function stepWorkout(wArg) {
       if (w.capture) { beep(880, 70); say(String(rep.n), { force: true }); $("cornerCount").hidden = false; $("cornerCount").querySelector(".n").textContent = rep.n; w.tLeaveUp = w.tEnterDown = w.tLeaveDown = 0; w.minAngle = 180; return; }
       $("repN").textContent = rep.n; $("cornerCount").querySelector(".n").textContent = rep.n;
       const PL = phaseLabels(cfg);
-      $("repT").textContent = `${PL[0]} ${rep.down.toFixed(1)}s · ${PL[1]} ${rep.hold.toFixed(1)}s · ${PL[2]} ${rep.up.toFixed(1)}s`
+      $("repT").textContent = `${PL[0]} ${rep.down.toFixed(1)}s · ${PL[1]} ${rep.hold.toFixed(1)}s · ${PL[2]} ${rep.up.toFixed(1)}s` + (rep.vl != null && w.reps.length > 2 ? ` · 속도 −${rep.vl}%` : "")
         + (rep.bar != null ? ` · 바 ${rep.bar}% · 팔차 ${rep.diff}°` : "") + (w.back ? " · " + backRepText(rep, w.back.sel) : "") + (w.sideM ? " · " + sideRepText(rep, w.sideM.sel) : "");
       beep(880, 70); say(String(rep.n), { force: true });
     } else if (w.capture) {
@@ -1246,6 +1253,36 @@ const PHASE = { vThr: 25 };
 const START_DELAY_MS = 3000;   // joints in view for this long → the set starts
 // what the three timed phases are called: the angle goes down → bottom → up, which is lifting for a curl / pulldown / row
 const phaseLabels = cfg => cfg && /curl|pulldown|row/.test(cfg.key || "") ? ["당김", "정지", "복귀"] : ["하강", "정지", "상승"];
+// ---------- effort from velocity loss (VBT literature: Sánchez-Medina 2011, Pareja-Blanco 2017, Rodríguez-Rosell 2020) ----------
+// concentric = the lifting phase: angle decreasing (당김) for curl / pulldown / row, angle increasing (상승) for squat / press.
+// velocity = joint ROM / concentric time; VL = 1 - v / v_best, v_best = fastest of the first two reps. Only valid when every rep is lifted fast.
+const EFFORT = {
+  minReps: 3,
+  bands: { lower: [15, 25, 40], upper: [20, 30, 45] },   // VL% boundaries; upper-body pressing keeps more reps in reserve at the same VL
+  labels: ["여유", "중간", "높음", "실패 근접"], rir: ["5+", "3~5", "1~3", "0~1"],
+  noiseVl: 10,            // below this the difference is frame-timing noise at 30 fps
+  calMinReps: 4, calKeep: 3,   // personal calibration: sets taken to failure, (VL, reps left) pairs, last 3 sets kept
+};
+const concentricKey = cfg => /curl|pulldown|row/.test((cfg && cfg.key) || "") ? "down" : "up";
+const effortBands = cfg => /bench|shoulder|pushup/.test((cfg && cfg.key) || "") ? EFFORT.bands.upper : EFFORT.bands.lower;
+function effortOf(vl, cfg) { const b = effortBands(cfg); const i = vl < b[0] ? 0 : vl < b[1] ? 1 : vl < b[2] ? 2 : 3; return { i, label: EFFORT.labels[i], rir: EFFORT.rir[i] }; }
+// personal calibration: from sets taken to failure, predict reps left from VL by least squares (RIR = a + b·VL, clamped at 0)
+const calOf = ex => { try { return JSON.parse(LS("cal_" + ex) || "null"); } catch { return null; } };
+function calPredict(ex, vl) {
+  const c = calOf(ex); if (!c || !c.pairs || c.pairs.length < 4) return null;
+  const n = c.pairs.length, sx = c.pairs.reduce((a, p) => a + p[0], 0), sy = c.pairs.reduce((a, p) => a + p[1], 0);
+  const sxx = c.pairs.reduce((a, p) => a + p[0] * p[0], 0), sxy = c.pairs.reduce((a, p) => a + p[0] * p[1], 0);
+  const d = n * sxx - sx * sx; if (!d) return null;
+  const b = (n * sxy - sx * sy) / d, a = (sy - b * sx) / n;
+  return Math.max(0, Math.round(a + b * vl));
+}
+function calAdd(ex, reps) {   // a set to failure: rep k has (n - k) reps left
+  const n = reps.length; if (n < EFFORT.calMinReps) return;
+  const c = calOf(ex) || { sets: [], pairs: [] };
+  const pairs = reps.filter(r => r.vl != null && r.n >= 2).map(r => [r.vl, n - r.n]);
+  c.sets.push({ at: new Date().toISOString(), n, pairs }); c.sets = c.sets.slice(-EFFORT.calKeep);
+  c.pairs = c.sets.flatMap(s => s.pairs); SS("cal_" + ex, JSON.stringify(c));
+}
 const TURN = { frac: 0.6, drop: 12 };
 const DEBOUNCE = { ms: 65, frames: 3 };   // was a fixed 3 frames: 100 ms at 30 fps but 200 ms at 15 fps, too slow for fast pumping reps
 const RATE = { maxDegPerSec: 1500 };   // fastest plausible joint-angle change (a very fast curl peaks ~900°/s; joint-level glitches are handled by the bone guard)
@@ -1261,7 +1298,8 @@ function phaseTimes(frames, f0, f1) {
   let ee = f1 - 1; while (ee > es && v(ee) < PHASE.vThr) ee--;               // ... and ends when it stops rising
   const down = Math.max(0, t(ce) - t(cs)), hold = Math.max(0, t(es) - t(ce)), up = Math.max(0, t(ee) - t(es));
   if (down + hold + up < 0.2) return null;
-  return { down: +down.toFixed(3), hold: +hold.toFixed(3), up: +up.toFixed(3) };
+  let lo = 999, hi = -999; for (let i = f0; i < f1; i++) { lo = Math.min(lo, a(i)); hi = Math.max(hi, a(i)); }
+  return { down: +down.toFixed(3), hold: +hold.toFixed(3), up: +up.toFixed(3), rom: Math.round(hi - lo) };
 }
 // per-frame back indicators: smooth, keep min/max inside the current rep, warn on shrugging, show the live line
 function trackBack(w, now, say) {
@@ -1297,6 +1335,11 @@ function backRepValues(w) {
   }
   if (b.view === "side" && r.torsoTiltMax != null) out.lean = Math.round(r.torsoTiltMax - r.torsoTiltMin);
   return out;
+}
+function setEffort(reps, cfg, exKey) {
+  const v = reps.filter(r => r.vl != null); if (reps.length < EFFORT.minReps || v.length < 2) return null;
+  const last = v.slice(-2), vl = Math.round(last.reduce((a, r) => a + r.vl, 0) / last.length);
+  return { vl, band: effortOf(vl, cfg), rirCal: calPredict(exKey, vl) };
 }
 function backRepText(x, sel) {
   const t = [];
@@ -1412,6 +1455,10 @@ function endWorkout(reason) {
   $("sumTiles").innerHTML = tile("평균 렙", n ? avgTot.toFixed(1) : "-", "초")
     + (n >= 2 ? tile(`가장 빠른 ${fi + 1}번`, tot(r[fi]).toFixed(1), "초", "fast") + tile(`가장 느린 ${si + 1}번`, tot(r[si]).toFixed(1), "초", "slow") : tile("부분 렙", String(w.partial), "회") + tile("최저 각도", n ? Math.round(avg("min")) : "-", "°"));
   $("sumPhase").innerHTML = tile(PL[0], avg("down").toFixed(1), "초", "ph1") + tile(PL[1], avg("hold").toFixed(1), "초", "ph2") + tile(PL[2], avg("up").toFixed(1), "초", "ph3");
+  // effort: velocity loss of the last two reps vs the set's fastest early rep
+  const effort = setEffort(r, w.cfg, w.exKey || exercise);
+  if (w.toFailure && effort) calAdd(w.exKey || exercise, r);
+  $("sumEffort").innerHTML = effort ? `<div class="tile wide e${effort.band.i}"><div class="k">노력도 · 속도 손실 ${effort.vl < EFFORT.noiseVl ? "~" : ""}${effort.vl}%</div><div class="v">${effort.band.label}<small>${effort.rirCal != null ? ` 남은 렙 약 ${effort.rirCal} (개인 보정)` : ` RIR ${effort.band.rir} (추정)`}</small></div></div>` : `<div class="tile wide"><div class="k">노력도</div><div class="v" style="font-size:22px;color:var(--muted)">렙 3개 이상 · 매 렙 최대한 빠르게 들 때 계산</div></div>`;
   const maxTot = n ? Math.max(...r.map(tot)) : 1;
   $("sumList").innerHTML = r.map((x, i) => `
     <div class="rr ${i === fi ? "fast" : i === si ? "slow" : ""}">
@@ -1435,6 +1482,7 @@ function endWorkout(reason) {
   lastSession = { exercise: w.exKey || (w.cfg.auto ? "auto" : exercise), muscle: muscle !== "all" ? muscle : undefined, back: w.back ? { sel: w.back.sel, view: w.back.view } : undefined, side: w.sideM ? { sel: w.sideM.sel } : undefined, view: camView,
                   at: new Date().toISOString(), reps: r, partial: w.partial, frames: w.frames, started: w.started,
                   ref: null, weight: w.weight || undefined, model: loadedTier || undefined, delegate: delegateUsed || undefined, track: TRACK,
+                  effort: effort ? { vl: effort.vl, band: effort.band.label, rir: effort.rirCal != null ? String(effort.rirCal) : effort.band.rir, cal: effort.rirCal != null } : undefined, toFailure: w.toFailure || undefined,
                   cfg: w.cfg.auto ? { joints: w.cfg.joints, names: w.cfg.names, label: w.cfg.label, anchor: w.cfg.anchor, load: w.cfg.load, both: w.cfg.both, auto: true, view: w.cfg.view, kind: w.cfg.kind, trace: w.cfg.trace } : undefined };
   const stored = { ...lastSession, clipStart: 0 };
   sessions.push(stored);
@@ -1453,7 +1501,7 @@ async function exportDiag(s) {
   const out = { app: "원 모어 (One More)", version: APP_VERSION, exported: new Date().toISOString(), ua: navigator.userAgent,
                 exercise: s.exercise, label: labelOf(s), view: s.view, muscle: s.muscle, at: s.at,
                 cfg: { joints: cfg.joints, names: cfg.names, up: cfg.up ?? (EX[s.exercise] || {}).up, down: cfg.down ?? (EX[s.exercise] || {}).down, both: cfg.both, anchor: cfg.anchor, load: cfg.load },
-                weight: s.weight, smoothing: SMOOTH, bone: BONE, rate: RATE, delegate: s.delegate || delegateUsed, model: s.model || loadedTier,
+                weight: s.weight, effort: s.effort, toFailure: s.toFailure, smoothing: SMOOTH, bone: BONE, rate: RATE, delegate: s.delegate || delegateUsed, model: s.model || loadedTier,
                 reps: s.reps, partial: s.partial, fps: dur ? +(fr.length / dur).toFixed(1) : null, durationSec: +dur.toFixed(1),
                 frameFormat: ["t_ms", "angle_smoothed", ...(s.track || TRACK_V1).flatMap(j => [`x${j}`, `y${j}`]), "side", "angle_raw", "min_visibility_pct", "state(0up/1mid/2down)"],
                 frames: fr };
@@ -1794,13 +1842,13 @@ function renderHistory() {
       delta = `<div class="delta ${cls}">직전 세트 대비: 횟수 ${dr >= 0 ? "+" : ""}${dr} · 평균 렙 ${dt >= 0 ? "+" : ""}${dt.toFixed(1)}s</div>`;
     }
     html += `<div class="ses" data-i="${all.indexOf(s)}">
-      <div class="h1"><b>${labelOf(s)} ${n}회${s.weight ? ` · ${s.weight}kg` : ""}${s.muscle ? " · " + muscleLabel(s.muscle) : ""}${s.view ? " · " + VIEWS[s.view] : ""}${s.analyzed ? " · 영상 분석" : ""}</b><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
+      <div class="h1"><b>${labelOf(s)} ${n}회${s.weight ? ` · ${s.weight}kg` : ""}${s.effort ? ` · ${s.effort.band} (VL ${s.effort.vl}%)` : ""}${s.muscle ? " · " + muscleLabel(s.muscle) : ""}${s.view ? " · " + VIEWS[s.view] : ""}${s.analyzed ? " · 영상 분석" : ""}</b><span>${d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span></div>
       <div class="h2"><span>평균 <b>${avg.toFixed(1)}s</b></span><span>최빠 <b>${tots[fi].toFixed(1)}s</b></span><span>최느 <b>${tots[si].toFixed(1)}s</b></span>${s.partial ? `<span>부분 <b>${s.partial}</b></span>` : ""}</div>
       ${delta}
       ${s.side ? `<div class="h2" style="flex-wrap:wrap">${sideSummaryRows(r, s.side.sel).replace(/<div class="kv"><span>([^<]*)<\/span><b>([^<]*)<\/b><\/div>/g, "<span>$1 <b>$2</b></span>")}</div>` : ""}
       ${s.back ? `<div class="h2" style="flex-wrap:wrap">${backSummaryRows(r, s.back.sel, s.back.view).replace(/<div class="kv"><span>([^<]*)<\/span><b>([^<]*)<\/b><\/div>/g, "<span>$1 <b>$2</b></span>")}</div>` : ""}
       ${s.frames && s.frames.length ? `<div class="row"><button class="rpOpen" data-i="${all.indexOf(s)}" style="flex:0;padding:8px 14px;font-size:14px">${s.hasClip ? "영상 · 동선 보기" : "동선 보기"}</button><button class="dgOpen" data-i="${all.indexOf(s)}" style="flex:0;padding:8px 14px;font-size:14px">진단 파일</button></div>` : ""}
-      <div class="detail">${r.map((x, i) => `<div class="rr ${i === fi ? "fast" : i === si ? "slow" : ""}"><span class="no">${x.n}</span><b>${repTot(x).toFixed(1)}s</b><span class="seg">↓${x.down.toFixed(1)} · ■${x.hold.toFixed(1)} · ↑${x.up.toFixed(1)}${s.back ? " · " + backRepText(x, s.back.sel) : ""}${s.side ? " · " + sideRepText(x, s.side.sel) : ""}</span><span class="min">${x.min}°</span></div>`).join("")}</div>
+      <div class="detail">${r.map((x, i) => `<div class="rr ${i === fi ? "fast" : i === si ? "slow" : ""}"><span class="no">${x.n}</span><b>${repTot(x).toFixed(1)}s</b><span class="seg">↓${x.down.toFixed(1)} · ■${x.hold.toFixed(1)} · ↑${x.up.toFixed(1)}${x.vl != null ? ` · VL${x.vl}%` : ""}${s.back ? " · " + backRepText(x, s.back.sel) : ""}${s.side ? " · " + sideRepText(x, s.side.sel) : ""}</span><span class="min">${x.min}°</span></div>`).join("")}</div>
     </div>`;
   }
   list.innerHTML = html;
@@ -1871,6 +1919,8 @@ $("pick").querySelectorAll(".exCard").forEach(b => b.onclick = () => {
   if (exercise === "auto") openJP("camera");
 });
 $("pick").querySelectorAll(".exCard").forEach(b => { const h = b.onclick; b.onclick = h; });
+let toFailure = false;
+$("segFail").querySelectorAll("button").forEach(b => b.onclick = () => { toFailure = b.dataset.v === "1"; $("segFail").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); });
 $("weightIn").oninput = () => { const v = parseFloat($("weightIn").value); SS("wt_" + exercise, Number.isFinite(v) && v > 0 ? String(v) : ""); };
 $("pickBtn").onclick = () => { renderPick(); $("setupErr").textContent = ""; $("pick").hidden = false; pushScreen("pick"); };
 // 직접 선택: the diagram always comes first (previous choice pre-filled); 선택 완료 is what turns the camera on
