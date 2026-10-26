@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>카운팅</title>
-<meta name="theme-color" content="#0b0f14">
+<meta name="theme-color" content="#0f1318">
 <meta name="application-name" content="카운팅">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -13,84 +13,98 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&display=swap">
 <style>
-  /* 카운팅 — counting-only edition. Big type, one job per screen. */
-  :root { --bg: #0b0f14; --fg: #f2f4f6; --muted: #8a97a5; --panel: #141c26; --line: #223040; --accent: #c5f03e; --ok: #4ade80; --bad: #f87171; --warn: #ffd166; }
+  /* 카운팅 — iron and amber. One memorable thing: the counter ring. Everything else stays quiet. */
+  :root { --bg: #0f1318; --bg2: #151b22; --panel: #1b222b; --line: #26303b; --fg: #eef1f5; --muted: #8e98a6; --accent: #ffb020; --accent2: #c97f00; --rest: #3fd2c7; --bad: #ff6b6b; --ok: #6ee7a0;
+          --disp: "Bricolage Grotesque", "Noto Sans KR", system-ui, sans-serif; --body: system-ui, -apple-system, "Noto Sans KR", sans-serif; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, "Noto Sans KR", sans-serif; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: var(--body); }
   body { overflow: hidden; }
-  .screen { position: fixed; inset: 0; display: flex; flex-direction: column; padding: calc(env(safe-area-inset-top, 0px) + 16px) 18px calc(env(safe-area-inset-bottom, 0px) + 18px); gap: 14px; overflow: auto; }
+  .screen { position: fixed; inset: 0; display: flex; flex-direction: column; padding: calc(env(safe-area-inset-top, 0px) + 18px) 20px calc(env(safe-area-inset-bottom, 0px) + 20px); gap: 14px; overflow: auto;
+            background: radial-gradient(120% 60% at 50% -10%, #1d2631 0%, var(--bg) 60%); }
   .screen[hidden] { display: none; }
-  .screen > * { flex-shrink: 0; }   /* a long chip list must scroll, not crush the rows above it */
-  h1 { font-size: 30px; font-weight: 900; margin: 6px 0 0; }
-  h1 small { font-size: 13px; color: var(--muted); font-weight: 700; letter-spacing: .1em; margin-left: 8px; }
-  .hh { display: flex; align-items: center; gap: 10px; }
-  .hh h1 { margin: 0; }
-  .back { width: 46px; height: 46px; border-radius: 50%; background: var(--panel); border: 0; color: var(--fg); font-size: 24px; flex: 0 0 auto; }
-  .sub { color: var(--muted); font-size: 15px; margin: 0; line-height: 1.5; }
-  button { font: inherit; font-weight: 800; font-size: 18px; border: 0; border-radius: 16px; padding: 16px 18px; background: var(--panel); color: var(--fg); width: 100%; }
-  button.primary { background: var(--accent); color: #0b0f14; font-size: 22px; padding: 20px; }
-  button.danger { background: #2a1416; color: var(--bad); }
-  button.ghost { background: transparent; color: var(--muted); font-weight: 700; }
-  button:disabled { opacity: .45; }
+  .screen > * { flex-shrink: 0; }
+  h1 { font-family: var(--disp); font-size: 40px; font-weight: 800; letter-spacing: -0.02em; margin: 8px 0 0; line-height: 1; }
+  h1 small { font-family: var(--disp); font-size: 13px; color: var(--muted); font-weight: 500; letter-spacing: .14em; margin-left: 10px; vertical-align: middle; }
+  .hh { display: flex; align-items: center; gap: 12px; }
+  .hh h1 { margin: 0; font-size: 30px; }
+  .back { width: 44px; height: 44px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); color: var(--fg); font-size: 22px; flex: 0 0 auto; padding: 0; }
+  .sub { color: var(--muted); font-size: 15px; margin: 0; line-height: 1.55; max-width: 34em; }
+  button { font: inherit; font-weight: 700; font-size: 17px; border: 1px solid var(--line); border-radius: 14px; padding: 15px 18px; background: var(--panel); color: var(--fg); width: 100%; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #1a1200; font-family: var(--disp); font-size: 22px; font-weight: 800; padding: 20px; letter-spacing: -0.01em; box-shadow: 0 10px 30px -10px rgba(255,176,32,.55); }
+  button.primary:active { transform: translateY(1px); box-shadow: none; }
+  button.danger { background: transparent; border-color: #3a2326; color: var(--bad); }
+  button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+  button:disabled { opacity: .5; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .row { display: flex; gap: 10px; }
   .row > * { flex: 1; min-width: 0; }
-  /* setup form */
-  .field { background: var(--panel); border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
-  .field label { font-size: 14px; color: var(--muted); font-weight: 700; }
-  .field input { font: inherit; font-size: 24px; font-weight: 800; background: transparent; border: 0; color: var(--fg); width: 100%; padding: 2px 0; outline: none; }
-  .field input::placeholder { color: #3b4a5a; }
-  .exRow { display: flex; gap: 8px; align-items: center; }
-  .exRow input { flex: 1; }
+  /* setup: the exercise name is the headline of the screen */
+  .exField { padding: 10px 0 4px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+  .exField label { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .exField input { font-family: var(--disp); font-size: 36px; font-weight: 800; letter-spacing: -0.02em; background: transparent; border: 0; color: var(--fg); width: 100%; padding: 0; outline: none; }
+  .exField input::placeholder { color: #3c4753; font-weight: 500; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 8px; }
+  .chips:empty { display: none; }
+  .chips button { width: auto; padding: 8px 13px; font-size: 14px; border-radius: 999px; font-weight: 600; background: transparent; color: var(--fg); border-color: var(--line); }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-  .chips button { width: auto; padding: 9px 14px; font-size: 15px; border-radius: 999px; font-weight: 700; }
-  .chips button.on { background: var(--accent); color: #0b0f14; }
-  .chips button.recent { border: 1px solid var(--accent); background: transparent; color: var(--accent); }
-  #segCat button { padding: 14px; font-size: 17px; }
-  .stepper { display: flex; align-items: center; gap: 6px; }
-  .stepper button { width: 48px; height: 44px; padding: 0; font-size: 24px; border-radius: 12px; }
+  .field { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 6px; min-height: 104px; justify-content: space-between; }
+  .field label { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .field input { font-family: var(--disp); font-size: 30px; font-weight: 800; background: transparent; border: 0; color: var(--fg); width: 100%; padding: 0; outline: none; font-variant-numeric: tabular-nums; }
+  .field input::placeholder { color: #3c4753; }
+  .stepper { display: flex; align-items: center; gap: 4px; }
+  .stepper button { width: 42px; height: 42px; padding: 0; font-size: 22px; border-radius: 12px; background: var(--bg2); font-weight: 500; }
   .stepper input { text-align: center; }
-  /* camera screen */
+  .spacer { flex: 1; }
+  /* live: camera, then the ring */
   #cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
   #cam.mirror, #ov.mirror { transform: scaleX(-1); }
   #ov { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-  #live { padding: 0; gap: 0; }
-  .liveTop { position: absolute; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px 10px; display: flex; align-items: center; gap: 10px; background: linear-gradient(rgba(11,15,20,.85), rgba(11,15,20,0)); z-index: 3; }
-  .liveTop .name { font-size: 20px; font-weight: 900; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .liveTop .setNo { font-size: 16px; font-weight: 800; color: var(--accent); background: rgba(197,240,62,.12); padding: 6px 12px; border-radius: 999px; }
-  #big { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-58%); text-align: center; pointer-events: none; z-index: 2; text-shadow: 0 4px 24px rgba(0,0,0,.8); }
-  #big .n { font-size: 200px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
-  #big .n.rest { color: var(--warn); font-size: 150px; }
-  #big .t { font-size: 22px; font-weight: 700; margin-top: 6px; }
-  #big .goal { font-size: 18px; color: var(--muted); margin-top: 4px; }
-  #status { position: absolute; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 112px); text-align: center; font-size: 17px; font-weight: 700; color: var(--fg); z-index: 3; text-shadow: 0 2px 10px rgba(0,0,0,.9); }
-  #status.warn { color: var(--warn); }
-  .liveBottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 16px); display: flex; gap: 10px; background: linear-gradient(rgba(11,15,20,0), rgba(11,15,20,.9)); z-index: 3; }
-  .liveBottom button { font-size: 17px; padding: 15px 10px; }
-  #frame { position: absolute; inset: 0; border: 6px solid transparent; pointer-events: none; z-index: 1; transition: border-color .3s; }
-  #frame.ok { border-color: rgba(74,222,128,.7); } #frame.bad { border-color: rgba(248,113,113,.6); }
+  #live { padding: 0; gap: 0; background: #000; }
+  .liveTop { position: absolute; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px 24px; display: flex; align-items: center; gap: 10px; background: linear-gradient(rgba(15,19,24,.9), rgba(15,19,24,0)); z-index: 3; }
+  .liveTop .back { background: rgba(27,34,43,.7); backdrop-filter: blur(8px); }
+  .liveTop .name { font-family: var(--disp); font-size: 20px; font-weight: 800; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .liveTop .setNo { font-family: var(--disp); font-size: 15px; font-weight: 800; color: var(--accent); background: rgba(255,176,32,.12); border: 1px solid rgba(255,176,32,.35); padding: 6px 12px; border-radius: 999px; }
+  #big { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-56%); display: flex; flex-direction: column; align-items: center; pointer-events: none; z-index: 2; }
+  #ring { width: min(74vw, 330px); height: min(74vw, 330px); position: relative; display: grid; place-items: center; }
+  #ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+  #ring circle { fill: none; stroke-width: 6; }
+  #ring .track { stroke: rgba(238,241,245,.14); }
+  #ring .bar { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .25s ease-out, stroke .3s; filter: drop-shadow(0 0 10px rgba(255,176,32,.55)); }
+  #ring.rest .bar { stroke: var(--rest); filter: drop-shadow(0 0 10px rgba(63,210,199,.5)); }
+  #big .n { font-family: var(--disp); font-size: clamp(120px, 42vw, 180px); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -0.05em; text-shadow: 0 6px 30px rgba(0,0,0,.85); }
+  #big .n.rest { color: var(--rest); font-size: clamp(100px, 34vw, 150px); }
+  #big .t { font-size: 20px; font-weight: 700; margin-top: 14px; text-shadow: 0 2px 10px rgba(0,0,0,.9); }
+  #big .goal { font-size: 16px; color: #c3cad3; margin-top: 4px; text-shadow: 0 2px 10px rgba(0,0,0,.9); }
+  #status { position: absolute; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 110px); text-align: center; font-size: 16px; font-weight: 600; color: var(--fg); z-index: 3; text-shadow: 0 2px 10px rgba(0,0,0,.9); }
+  #status.warn { color: var(--accent); }
+  .liveBottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 28px 16px calc(env(safe-area-inset-bottom, 0px) + 16px); display: flex; gap: 10px; background: linear-gradient(rgba(15,19,24,0), rgba(15,19,24,.92)); z-index: 3; }
+  .liveBottom button { font-size: 16px; padding: 15px 10px; background: rgba(27,34,43,.75); backdrop-filter: blur(10px); border-color: rgba(255,255,255,.08); }
+  .liveBottom button.danger { color: var(--bad); }
+  #frame { position: absolute; inset: 0; border: 4px solid transparent; pointer-events: none; z-index: 1; transition: border-color .3s; }
+  #frame.ok { border-color: rgba(110,231,160,.55); } #frame.bad { border-color: rgba(255,107,107,.55); }
   /* summary + history */
-  .big { font-size: 26px; font-weight: 900; margin: 0; }
   .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .tile { background: var(--panel); border-radius: 16px; padding: 14px 8px; text-align: center; }
-  .tile .k { font-size: 13px; color: var(--muted); font-weight: 700; }
-  .tile .v { font-size: 30px; font-weight: 900; margin-top: 2px; font-variant-numeric: tabular-nums; }
-  .tile .v small { font-size: 14px; color: var(--muted); }
-  .setRow { display: grid; grid-template-columns: 60px 1fr 90px; align-items: center; gap: 10px; background: var(--panel); border-radius: 14px; padding: 12px 14px; font-size: 17px; }
-  .setRow b { font-size: 22px; font-variant-numeric: tabular-nums; } .setRow .m { color: var(--muted); font-size: 15px; text-align: right; }
-  .setRow.short b { color: var(--warn); }
-  .ses { background: var(--panel); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
-  .ses .h { display: flex; justify-content: space-between; font-weight: 800; font-size: 18px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 16px 10px 14px; text-align: center; }
+  .tile .k { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .tile .v { font-family: var(--disp); font-size: 34px; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .tile .v small { font-size: 15px; color: var(--muted); font-weight: 500; }
+  .setRow { display: grid; grid-template-columns: 64px 1fr auto; align-items: baseline; gap: 10px; padding: 14px 4px; border-bottom: 1px solid var(--line); font-size: 16px; color: var(--muted); }
+  .setRow b { font-family: var(--disp); font-size: 26px; font-weight: 800; color: var(--fg); font-variant-numeric: tabular-nums; } .setRow .m { font-size: 14px; }
+  .setRow.short b { color: var(--accent); }
+  .ses { padding: 14px 4px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+  .ses .h { display: flex; justify-content: space-between; align-items: baseline; font-family: var(--disp); font-weight: 800; font-size: 19px; }
+  .ses .h span:last-child { font-family: var(--body); font-weight: 500; font-size: 14px; color: var(--muted); }
   .ses .d { color: var(--muted); font-size: 15px; }
-  .day { color: var(--muted); font-size: 14px; font-weight: 700; margin-top: 8px; }
-  .empty { color: var(--muted); text-align: center; padding: 40px 0; }
+  .day { color: var(--accent); font-size: 13px; font-weight: 700; margin-top: 12px; }
+  .empty { color: var(--muted); text-align: center; padding: 60px 0; line-height: 1.6; }
   .seg { display: flex; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
-  .seg button { border-radius: 0; padding: 12px; font-size: 15px; background: #0f151d; }
-  .seg button.on { background: var(--accent); color: #0b0f14; }
-  .srow { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 16px; }
-  .srow .seg { width: 200px; }
-  .spacer { flex: 1; }
+  .seg button { border: 0; border-radius: 0; padding: 11px; font-size: 14px; background: var(--bg2); font-weight: 600; }
+  .seg button.on { background: var(--fg); color: var(--bg); }
+  .srow { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 16px; }
+  .srow .seg { width: 190px; }
+  @media (prefers-reduced-motion: reduce) { #ring .bar { transition: none; } }
 </style>
 </head>
 <body>
@@ -98,8 +112,8 @@
 <!-- 1. setup -->
 <div id="setup" class="screen">
   <h1>카운팅 <small>COUNTING</small></h1>
-  <p class="sub">운동 이름과 목표만 정하고 시작하세요. 동작은 카메라가 알아서 인식해 셉니다.</p>
-  <div class="field"><label>운동 이름 (선택)</label><input id="ex" type="text" placeholder="예: 덤벨 컬, 스쿼트" maxlength="24"><div class="chips" id="exRecent"></div></div>
+  <p class="sub">목표만 정하고 시작하세요. 동작은 카메라가 알아서 인식해 셉니다.</p>
+  <div class="exField"><label>오늘 운동</label><input id="ex" type="text" placeholder="덤벨 컬" maxlength="24"><div class="chips" id="exRecent"></div></div>
   <div class="grid2">
     <div class="field" id="wtField"><label>무게 (kg, 선택)</label><input id="wt" type="number" inputmode="decimal" step="0.5" min="0" placeholder="0"></div>
     <div class="field"><label>쉬는 시간 (초)</label><div class="stepper"><button data-k="rest" data-d="-15">−</button><input id="rest" type="number" inputmode="numeric" min="0" step="15" value="90"><button data-k="rest" data-d="15">+</button></div></div>
@@ -118,7 +132,7 @@
   <canvas id="ov"></canvas>
   <div id="frame"></div>
   <div class="liveTop"><button class="back" id="liveBack">←</button><span class="name" id="liveName"></span><span class="setNo" id="liveSet">1 / 3 세트</span></div>
-  <div id="big"><div class="n" id="bigN">0</div><div class="t" id="bigT"></div><div class="goal" id="bigG"></div></div>
+  <div id="big"><div id="ring"><svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="46"/><circle class="bar" id="ringBar" cx="50" cy="50" r="46" stroke-dasharray="289" stroke-dashoffset="289"/></svg><div class="n" id="bigN">0</div></div><div class="t" id="bigT"></div><div class="goal" id="bigG"></div></div>
   <div id="status">카메라 준비 중…</div>
   <div class="liveBottom"><button id="endSetBtn">세트 끝내기</button><button id="skipRestBtn" hidden>휴식 건너뛰기</button><button class="danger" id="endBtn">운동 종료</button></div>
 </div>
@@ -153,7 +167,7 @@
 </div>
 
 <script type="module">
-const APP_VERSION = "counting-2026-10-14a";
+const APP_VERSION = "counting-2026-10-27a";
 const $ = id => document.getElementById(id);
 const LS = k => { try { return localStorage.getItem("ct_" + k); } catch { return null; } };
 const SS = (k, v) => { try { localStorage.setItem("ct_" + k, v); } catch {} };
@@ -405,12 +419,14 @@ function beginWorkout(plan) {
   renderLive(); say(`${plan.ex} 시작. 동작을 하면 셉니다`);
 }
 const curReps = () => W.counter ? W.counter.reps.length : 0;
+const RING_C = 2 * Math.PI * 46;
+function setRing(frac, rest) { const el = $("ringBar"); el.style.strokeDashoffset = String(RING_C * (1 - Math.max(0, Math.min(1, frac)))); $("ring").classList.toggle("rest", !!rest); }
 function renderLive() {
   if (!W) return;
   $("liveSet").textContent = `${W.set} / ${W.plan.sets} 세트`; $("liveName").textContent = W.plan.ex;
   $("skipRestBtn").hidden = W.phase !== "rest"; $("endSetBtn").hidden = W.phase === "rest";
-  if (W.phase === "rest") { $("bigN").className = "n rest"; $("bigT").textContent = "휴식 · 동작을 시작하면 다음 세트"; $("bigG").textContent = `다음: ${W.set} / ${W.plan.sets} 세트`; return; }
-  $("bigN").className = "n"; $("bigN").textContent = curReps();
+  if (W.phase === "rest") { $("bigN").className = "n rest"; $("bigT").textContent = "휴식 · 동작을 시작하면 다음 세트"; $("bigG").textContent = `다음: ${W.set} / ${W.plan.sets} 세트`; setRing(1, true); return; }
+  $("bigN").className = "n"; $("bigN").textContent = curReps(); setRing(curReps() / W.plan.reps, false);
   $("bigT").textContent = W.phase === "detect" ? "동작을 시작하세요" : (W.chain ? `${W.chain.label} ${W.side === "L" ? "왼쪽" : "오른쪽"}` : "");
   $("bigG").textContent = `목표 ${W.plan.reps}회` + (W.plan.wt ? ` · ${W.plan.wt}kg` : "");
 }
@@ -447,7 +463,7 @@ function step(now) {
   const L = W.lastPose;
   if (W.phase === "rest") {
     const left = Math.ceil((W.restUntil - now) / 1000);
-    $("bigN").textContent = Math.max(0, left);
+    $("bigN").textContent = Math.max(0, left); setRing(W.plan.rest ? left / W.plan.rest : 0, true);
     if (left <= 3 && left >= 1 && left !== W.restSaid) { W.restSaid = left; beep(660, 60); say(String(left)); }
     $("status").textContent = `${W.set} / ${W.plan.sets} 세트 시작 전 휴식`; $("status").className = "";
     if (left <= 0) { nextSet(); return; }
@@ -479,7 +495,7 @@ function step(now) {
   if (!W.counter.reps.length && now - W.setStart > SWITCH.firstMs) { const d = detectMovement(W.hist, now, W.chain.id + W.side, W.plan.kinds, 2); if (d) lockMovement(d, now); }
 }
 function onRep() {
-  const n = W.counter.reps.length; $("bigN").textContent = n;
+  const n = W.counter.reps.length; $("bigN").textContent = n; setRing(n / W.plan.reps, false);
   if (n < W.plan.reps) { beep(880, 70); say(String(n)); return; }
   beep(880, 160, 3); say(`${n}. 세트 완료`); finishSet();
 }
