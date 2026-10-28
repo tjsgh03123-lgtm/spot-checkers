@@ -1,0 +1,17 @@
+{
+  "name": "리뷰 — 운동 영상 관절 분석",
+  "short_name": "리뷰",
+  "description": "운동 영상에 관절을 직접 찍어 추적하고 횟수·렙 시간·각도를 잽니다. 영상은 폰 밖으로 나가지 않습니다.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1318",
+  "theme_color": "#0f1318",
+  "lang": "ko",
+  "icons": [
+    { "src": "../counting/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "../counting/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "../counting/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
