@@ -6,7 +6,7 @@
 - 배포되는 앱을 수정한 뒤에는 **항상** 접속 링크를 답변에 포함한다.
 - 수정이 끝나면 **실제로 완료됐는지 확인한 뒤** 답한다: (1) 테스트 통과, (2) 커밋이 origin에 올라갔는지 (`git ls-remote`), (3) GitHub Pages 배포가 success인지 (`gh run list --limit 1`).
 - 배포 루틴: `cp index.html 404.html && cp counting/index.html counting/404.html` → 커밋 → `git push origin main && git push -f origin main:gh-pages` (gh-pages는 main을 강제 푸시한 복사본).
-- 커밋 전에 `APP_VERSION` 문자열을 올린다 (예: `2026-10-14a`, `counting-2026-10-14a`). 설정 화면 하단에 표시되어 폰에서 최신 여부를 확인한다.
+- 커밋 전에 `APP_VERSION` 문자열을 올린다 (예: `2026-10-14a`, `counting-2026-10-14a`, `review-2026-10-28a`). 리뷰는 `cp review/index.html review/404.html`도 배포 루틴에 포함. 설정 화면 하단에 표시되어 폰에서 최신 여부를 확인한다.
 - 답변은 한국어, 짧고 결론부터.
 
 ## 1. 저장소 · 배포
@@ -14,6 +14,7 @@
 - 웹 (GitHub Pages):
   - 원 모어 (풀 버전): https://tjsgh03123-lgtm.github.io/spot-checkers/
   - 카운팅 (단순 버전): https://tjsgh03123-lgtm.github.io/spot-checkers/counting/
+  - 리뷰 (운동 후 영상 분석, 2026-10-28 신설): https://tjsgh03123-lgtm.github.io/spot-checkers/review/
 - 둘 다 **HTML 한 파일짜리 PWA** (`index.html`, `counting/index.html`), 서버 없음, 모든 처리·저장은 폰 로컬(localStorage). `manifest.json`, `sw.js`(네트워크 우선 셸, 모델·wasm은 캐시 우선), `icons/`, `404.html`(index 복사본, SPA 라우팅용), `.nojekyll`, `privacy.html`.
 - 안드로이드: Bubblewrap TWA를 GitHub Actions(`.github/workflows/android.yml`, matrix onemore/counting, max-parallel 1)로 빌드. 릴리스 태그 `android-latest`(패키지 `app.onemore.counter`), `android-counting-latest`(`app.onemore.counting`). 키스토어 `android.keystore`는 저장소에 커밋됨(비밀번호 `onemore-keystore`). `.well-known/assetlinks.json`은 워크플로가 두 패키지 모두 자동 생성. `twa-manifest.json`, `twa-manifest-counting.json`의 `appVersionCode`는 스토어 업데이트마다 올려야 함. `STORE_LISTING.md`에 플레이스토어 등록 문구·데이터 안전 답변 정리됨.
 
@@ -27,6 +28,12 @@
 - 슈퍼세트 기능은 넣었다가 **삭제함**(2026-10-14). 운동 하나만.
 - 운동 이름은 관절 힌트로만 사용: 스쿼트·런지·레그·데드·힙… → 무릎/엉덩이 체인만, 컬·프레스·푸시·로우·풀·레이즈·플라이·딥… → 팔꿈치/어깨만 (`HINT` 정규식). 비우면 전체 후보.
 - localStorage 키는 `ct_` 접두사. 설정 화면에서 전신 스켈레톤을 항상 그리되 잘린 관절은 빼고 보이는 부분만.
+
+### 리뷰 — `review/index.html` (트래킹 원리 전환의 주 무대)
+- 실시간이 아니라 **운동 후 영상**에 관절을 직접 찍어 추적. 흐름: 영상 선택 → 프레임 추출(시킹, 15/30 fps, MediaPipe IMAGE 모드 프레임별 사람 검출 + 384px 그레이 프레임 메모리 보관 ≤150 MB) → 관절 찍기(자동 랜드마크 탭 선택 / 빈 곳 탭 → 이름 붙인 수동 점, 프리셋 체인 칩, 점 3개로 각도) → 추적 → 결과(횟수·렙당 시간·ROM, 각도 그래프, 영상 위 점·궤적 재생, 신뢰도 타임라인) → 점 끌어 고치면 키프레임 → 구간 재추적 → IndexedDB 저장(`rv` DB, 영상 blob 포함) / 진단 JSON.
+- 엔진: 자동 점 = 프레임별 MediaPipe(가시성 <0.5 구간 보간). 수동 점 = 피라미드 Lucas-Kanade(3단, 창 15×15, 전후 검사) + 몸통(어깨·골반 4점) 유사변환 앵커로 드리프트 억제, 키프레임 사이 양방향 추적을 신뢰도 가중 보간. 스무딩은 zero-phase(median3 + gaussian). 렙은 `RepCounter`(카운팅과 동일 규칙)에 각도 시계열 전체 입력, 임계값 = 5~95% 범위에서 up = hi−0.15·range, down = lo+0.3·range.
+- 테스트 훅: `window.__RV_CFG = { delegate:"CPU", vision:"/mp/wasm", models:{...} }`(샌드박스 GPU가 느려서), `window.__rv`(S, flowStep, trackAll…), `window.__rv_setS`. 합성 이동 프레임에서 LK 오차 <0.1 px 확인. 번들 크로미움은 h264 미지원 → 테스트 클립은 webm.
+- 아직 실제 운동 영상으로 검증 전(사용자 영상 대기).
 
 ## 3. 트래킹 엔진 (두 앱 공통 개념, 수치는 각 파일 상단 상수)
 - MediaPipe Tasks Vision 0.10.14 Pose Landmarker (Lite/Full 선택, 기본 Full, GPU→CPU 폴백). VIDEO 모드 numPoses 2 + IMAGE 모드 폴백 랜드마커로 사람 재탐지. 얼굴 관절은 쓰지 않음.
