@@ -1,0 +1,16 @@
+{
+  "name": "공수표",
+  "short_name": "공수표",
+  "description": "현장 공수 기록 · 카톡 보내기 · 오프라인 지원",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#1E2A33",
+  "theme_color": "#1E2A33",
+  "lang": "ko",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

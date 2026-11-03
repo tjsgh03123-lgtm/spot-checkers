@@ -15,6 +15,7 @@
   - 원 모어 (풀 버전): https://tjsgh03123-lgtm.github.io/spot-checkers/
   - 카운팅 (단순 버전): https://tjsgh03123-lgtm.github.io/spot-checkers/counting/
   - 리뷰 (운동 후 영상 분석, 2026-10-28 신설): https://tjsgh03123-lgtm.github.io/spot-checkers/review/
+  - 공수표 (현장 공수 기록·카톡 보내기, 별개 앱, 2026-11-03 추가, `gongsupyo/`): https://tjsgh03123-lgtm.github.io/spot-checkers/gongsupyo/
 - 둘 다 **HTML 한 파일짜리 PWA** (`index.html`, `counting/index.html`), 서버 없음, 모든 처리·저장은 폰 로컬(localStorage). `manifest.json`, `sw.js`(네트워크 우선 셸, 모델·wasm은 캐시 우선), `icons/`, `404.html`(index 복사본, SPA 라우팅용), `.nojekyll`, `privacy.html`.
 - 안드로이드: Bubblewrap TWA를 GitHub Actions(`.github/workflows/android.yml`, matrix onemore/counting, max-parallel 1)로 빌드. 릴리스 태그 `android-latest`(패키지 `app.onemore.counter`), `android-counting-latest`(`app.onemore.counting`). 키스토어 `android.keystore`는 저장소에 커밋됨(비밀번호 `onemore-keystore`). `.well-known/assetlinks.json`은 워크플로가 두 패키지 모두 자동 생성. `twa-manifest.json`, `twa-manifest-counting.json`의 `appVersionCode`는 스토어 업데이트마다 올려야 함. `STORE_LISTING.md`에 플레이스토어 등록 문구·데이터 안전 답변 정리됨.
 

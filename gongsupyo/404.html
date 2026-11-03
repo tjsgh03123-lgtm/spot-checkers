@@ -1,0 +1,1294 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>공수표 - 현장 공수 기록</title>
+
+<!-- PWA & Mobile Optimization -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1E2A33">
+<link rel="apple-touch-icon" href="icon-192.png">
+
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<meta name="description" content="현장 공수(반일·주간·연장·야간)를 달력에 기록하고 월 합계를 카톡으로 보내는 공수표. 오프라인에서도 작동합니다.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="공수표 - 현장 공수 기록">
+<meta property="og:description" content="달력에 눌러 기록하고, 기간별 합계를 카톡으로 보내세요. 설치 없이 링크로 바로 사용, 오프라인 지원.">
+<meta property="og:image" content="https://tjsgh03123-lgtm.github.io/spot-checkers/gongsupyo/og.png">
+<meta property="og:url" content="https://tjsgh03123-lgtm.github.io/spot-checkers/gongsupyo/">
+
+<style>
+  :root{
+    --steel-dark:#1E2A33;
+    --steel:#2E404C;
+    --steel-light:#3E5462;
+    --paper:#EDEAE0;
+    --paper-light:#F6F4EC;
+    --line:#C7C0AE;
+    --ink:#1C2226;
+    --muted:#7C7666;
+    --day:#4A7C59;
+    --day-bg:#E1EBE3;
+    --ot:#C97A2E;
+    --ot-bg:#F3E3CE;
+    --night:#33506E;
+    --night-bg:#DCE4EC;
+    --half:#7A6A8C;
+    --half-bg:#E7E1EC;
+    --danger:#B5482A;
+  }
+  *{box-sizing:border-box; touch-action: manipulation;}
+  html{-webkit-text-size-adjust:100%;}
+  button,.day-cell,.picker-opt,.picker-clear,.picker-cancel{-webkit-tap-highlight-color:transparent;}
+  body{overscroll-behavior-x:none; user-select: none; -webkit-user-select: none;}
+  textarea,input{user-select:text; -webkit-user-select:text;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--steel-dark);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    min-height:100vh;
+    padding:20px 10px 60px;
+  }
+  .sheet{
+    max-width:600px;
+    margin:0 auto;
+    background:var(--paper);
+    border-radius:3px;
+    box-shadow:0 18px 50px rgba(0,0,0,0.5);
+    overflow:hidden;
+  }
+
+  /* Header */
+  .header{
+    background:var(--steel);
+    color:var(--paper-light);
+    padding:20px 22px 16px;
+    position:relative;
+    border-bottom:4px solid var(--ot);
+  }
+  .header-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+  }
+  .title{
+    font-family:Georgia,'Times New Roman',serif;
+    font-size:24px;
+    letter-spacing:1px;
+    margin:0;
+  }
+  .title .en{
+    font-family:'Courier New',monospace;
+    font-size:11px;
+    color:#9FB0BC;
+    letter-spacing:2px;
+    display:block;
+    margin-top:2px;
+  }
+  .legend{
+    display:flex;
+    gap:10px;
+    margin-top:14px;
+    flex-wrap:wrap;
+  }
+  .legend-item{
+    display:flex;
+    align-items:center;
+    gap:5px;
+    font-size:11px;
+    color:#CBD5DB;
+    font-family:'Courier New',monospace;
+  }
+  .legend-dot{
+    width:9px;height:9px;border-radius:2px;
+  }
+  .legend-dot.day{background:var(--day);}
+  .legend-dot.ot{background:var(--ot);}
+  .legend-dot.night{background:var(--night);}
+  .legend-dot.half{background:var(--half);}
+
+  /* Month nav */
+  .month-nav{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 20px;
+    background:var(--paper-light);
+    border-bottom:1px solid var(--line);
+  }
+  .month-nav button{
+    background:none;
+    border:1px solid var(--line);
+    color:var(--ink);
+    width:36px;height:36px;
+    border-radius:50%;
+    font-size:18px;
+    cursor:pointer;
+    font-family:Georgia,serif;
+  }
+  .month-nav button:disabled{opacity:0.25;cursor:default;}
+  .month-nav button:not(:disabled):active{background:var(--paper);}
+  .month-label{
+    font-family:Georgia,serif;
+    font-size:19px;
+    text-align:center;
+  }
+
+  /* Total strip */
+  .total-strip{
+    padding:16px 22px;
+    background:repeating-linear-gradient(var(--paper-light),var(--paper-light) 26px,var(--line) 27px);
+    border-bottom:1px solid var(--line);
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+  }
+  .total-strip .label{
+    font-size:12px;
+    color:var(--muted);
+    letter-spacing:0.5px;
+  }
+  .total-strip .value{
+    font-family:'Courier New',monospace;
+    font-size:30px;
+    font-weight:bold;
+    color:var(--steel);
+  }
+  .total-strip .value .unit{
+    font-size:14px;
+    color:var(--muted);
+    font-weight:normal;
+    margin-left:4px;
+  }
+  .total-breakdown{
+    display:flex;
+    gap:14px;
+    font-family:'Courier New',monospace;
+    font-size:11px;
+    color:var(--muted);
+  }
+  .total-breakdown span b{color:var(--ink);}
+
+  /* Calendar grid */
+  .calendar{
+    padding:18px 16px 24px;
+  }
+  .dow-row{
+    display:grid;
+    grid-template-columns:repeat(7,1fr);
+    margin-bottom:6px;
+  }
+  .dow-row div{
+    text-align:center;
+    font-size:11px;
+    color:var(--muted);
+    font-family:'Courier New',monospace;
+    letter-spacing:0.5px;
+  }
+  .dow-row div:first-child{color:var(--danger);}
+  .day-grid{
+    display:grid;
+    grid-template-columns:repeat(7,1fr);
+    gap:4px;
+  }
+  .day-cell{
+    aspect-ratio:1;
+    border:1px solid var(--line);
+    border-radius:3px;
+    background:var(--paper-light);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    position:relative;
+    transition:transform .1s;
+    padding:2px;
+  }
+  .day-cell:active{transform:scale(0.94);}
+  .day-cell.empty{
+    border:none;background:none;cursor:default;
+  }
+  .day-cell .num{
+    font-size:12px;
+    color:var(--ink);
+    font-family:'Courier New',monospace;
+  }
+  .day-cell.sunday .num{color:var(--danger);}
+  .day-cell.today{
+    box-shadow:0 0 0 2px var(--steel) inset;
+  }
+  .day-cell .tag{
+    font-size:9.5px;
+    margin-top:2px;
+    padding:1px 5px;
+    border-radius:8px;
+    font-weight:600;
+    letter-spacing:0.3px;
+  }
+  .day-cell.filled.day{background:var(--day-bg);}
+  .day-cell.filled.day .tag{background:var(--day);color:#fff;}
+  .day-cell.filled.ot{background:var(--ot-bg);}
+  .day-cell.filled.ot .tag{background:var(--ot);color:#fff;}
+  .day-cell.filled.night{background:var(--night-bg);}
+  .day-cell.filled.night .tag{background:var(--night);color:#fff;}
+  .day-cell.filled.half{background:var(--half-bg);}
+  .day-cell.filled.half .tag{background:var(--half);color:#fff;}
+  .day-cell.filled.mixed{background:#EDE7DC;border-color:var(--steel-light);}
+  .day-cell.filled.mixed .tag{background:var(--steel);color:#fff;}
+
+  /* Bottom sheet picker */
+  .overlay{
+    position:fixed;inset:0;
+    background:rgba(20,26,30,0.55);
+    display:none;
+    align-items:flex-end;
+    justify-content:center;
+    z-index:100;
+  }
+  .overlay.show{display:flex;}
+  .picker{
+    width:100%;
+    max-width:600px;
+    background:var(--paper-light);
+    border-radius:14px 14px 0 0;
+    padding:10px 20px 26px;
+    box-shadow:0 -10px 40px rgba(0,0,0,0.35);
+    animation:slideUp .2s ease;
+  }
+  @keyframes slideUp{ from{transform:translateY(24px); opacity:0;} to{transform:translateY(0); opacity:1;} }
+  .picker-handle{
+    width:36px;height:4px;background:var(--line);border-radius:2px;
+    margin:0 auto 14px;
+  }
+  .picker-date{
+    font-family:Georgia,serif;
+    font-size:17px;
+    text-align:center;
+    margin-bottom:16px;
+    color:var(--ink);
+  }
+  .picker-options{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .picker-opt{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:14px 16px;
+    border-radius:8px;
+    border:1px solid var(--line);
+    background:#fff;
+    font-size:15px;
+    cursor:pointer;
+    transition:border-color .12s, box-shadow .12s;
+  }
+  .picker-opt:active{transform:scale(0.98);}
+  .picker-opt .label-row{display:flex;align-items:center;gap:8px;font-weight:600;}
+  .picker-opt .swatch{width:11px;height:11px;border-radius:3px;}
+  .picker-opt.day .swatch{background:var(--day);}
+  .picker-opt.ot .swatch{background:var(--ot);}
+  .picker-opt.night .swatch{background:var(--night);}
+  .picker-opt.half .swatch{background:var(--half);}
+  .picker-opt.active{border-color:var(--steel);box-shadow:0 0 0 1px var(--steel) inset;background:var(--paper-light);}
+  .base-hint{
+    font-size:10.5px;
+    font-weight:normal;
+    color:var(--muted);
+    font-family:'Courier New',monospace;
+  }
+  .opt-val{
+    font-family:'Courier New',monospace;
+    font-size:15px;
+    font-weight:bold;
+    color:var(--steel);
+    min-width:30px;
+    text-align:right;
+  }
+  .global-adjust{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-top:14px;
+    padding:12px 14px;
+    border:1px dashed var(--line);
+    border-radius:8px;
+    background:var(--paper-light);
+  }
+  .global-label{
+    font-size:13px;
+    color:var(--muted);
+  }
+  .stepper{
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .step-btn{
+    width:34px;height:34px;
+    border-radius:50%;
+    border:1px solid var(--line);
+    background:#fff;
+    font-size:18px;
+    line-height:1;
+    cursor:pointer;
+    color:var(--ink);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    user-select:none;
+  }
+  .step-btn:active{transform:scale(0.9);}
+  .step-btn.plus{border-color:var(--steel);color:var(--steel);}
+  .step-btn:disabled{opacity:0.3;cursor:default;}
+  .step-btn:disabled:active{transform:none;}
+  .step-val{
+    font-family:'Courier New',monospace;
+    font-size:15px;
+    min-width:34px;
+    text-align:center;
+    font-weight:bold;
+    color:var(--ink);
+  }
+  .picker-total{
+    text-align:center;
+    margin-top:14px;
+    font-size:13px;
+    color:var(--muted);
+    font-family:'Courier New',monospace;
+  }
+  .picker-total b{
+    color:var(--steel);
+    font-size:16px;
+  }
+  .picker-clear{
+    margin-top:10px;
+    text-align:center;
+    font-size:13px;
+    color:var(--danger);
+    text-decoration:underline;
+    cursor:pointer;
+    padding:8px;
+  }
+  .picker-cancel{
+    margin-top:4px;
+    text-align:center;
+    font-size:13px;
+    color:var(--muted);
+    cursor:pointer;
+    padding:8px;
+  }
+
+  .mobile-tools{
+    display:flex; flex-direction:column; gap:8px; padding:0 16px 22px;
+  }
+  .action-row{
+    display:flex; gap:8px;
+  }
+  .mobile-tools button{
+    flex:1; padding:12px; border:1px solid var(--line); border-radius:8px;
+    background:var(--paper-light); color:var(--ink); font-size:13px; font-weight:600; cursor:pointer;
+  }
+  .mobile-tools button.install-btn{
+    background:var(--steel); color:var(--paper-light); border:none; display:none;
+  }
+  .mobile-tools button:active{transform:scale(.98);}
+
+
+  .modal-overlay{position:fixed;inset:0;background:rgba(20,26,30,0.6);display:none;align-items:flex-end;justify-content:center;z-index:250;}
+  .modal-overlay.show{display:flex;}
+  .modal{width:100%;max-width:600px;max-height:92vh;overflow:auto;background:var(--paper-light);border-radius:14px 14px 0 0;padding:14px 18px 22px;box-shadow:0 -10px 40px rgba(0,0,0,.35);animation:slideUp .2s ease;}
+  .modal h2{font-family:Georgia,serif;font-size:18px;text-align:center;margin:4px 0 14px;}
+  .modal label.f{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px;}
+  .modal input[type=date]{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:15px;color:var(--ink);}
+  .modal textarea{width:100%;min-height:170px;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:13px;line-height:1.5;color:var(--ink);font-family:'Courier New',monospace;resize:vertical;}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 4px;}
+  .chip{padding:7px 12px;border:1px solid var(--line);border-radius:16px;background:#fff;font-size:12px;cursor:pointer;}
+  .chip:active{background:var(--paper);}
+  .m-actions{display:flex;gap:8px;margin-top:12px;}
+  .m-actions button{flex:1;padding:12px;border-radius:8px;border:1px solid var(--line);background:#fff;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);}
+  .m-actions button.primary{background:#FEE500;border-color:#E5CE00;color:#191600;}
+  .m-actions button.steel{background:var(--steel);color:var(--paper-light);border:none;}
+  .m-close{text-align:center;margin-top:10px;font-size:13px;color:var(--muted);padding:8px;cursor:pointer;}
+  .m-note{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5;}
+  .mobile-tools button.kakao-btn{background:#FEE500;border-color:#E5CE00;color:#191600;}
+  .loading{padding:60px 24px;text-align:center;color:var(--muted);font-family:'Courier New',monospace;}
+
+  /* Quote popup */
+  .quote-overlay{
+    position:fixed;inset:0;
+    background:rgba(20,26,30,0.68);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    z-index:300;
+    padding:24px;
+    cursor:pointer;
+  }
+  .quote-overlay.show{display:flex;}
+  .quote-card{
+    max-width:420px;
+    width:100%;
+    background:var(--paper-light);
+    border-radius:6px;
+    padding:34px 28px 28px;
+    text-align:center;
+    box-shadow:0 20px 60px rgba(0,0,0,0.5);
+    animation:quoteIn .22s ease;
+    cursor:default;
+  }
+  @keyframes quoteIn{ from{transform:translateY(10px) scale(0.97); opacity:0;} to{transform:translateY(0) scale(1); opacity:1;} }
+  .quote-mark{
+    font-family:Georgia,serif;
+    font-size:40px;
+    color:var(--ot);
+    line-height:1;
+    margin-bottom:4px;
+  }
+  .quote-text{
+    font-family:Georgia,'Times New Roman',serif;
+    font-size:18px;
+    line-height:1.6;
+    color:var(--ink);
+    margin:0 0 18px;
+  }
+  .quote-tap{
+    font-size:11px;
+    color:var(--muted);
+    letter-spacing:0.3px;
+    font-family:'Courier New',monospace;
+  }
+  .toast{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    background:var(--steel);color:var(--paper-light);
+    padding:10px 18px;border-radius:20px;font-size:13px;
+    opacity:0;pointer-events:none;transition:opacity .25s;
+    z-index:200; width:max-content; max-width:90%; text-align:center;
+  }
+  .toast.show{opacity:1;}
+
+  @media (max-width:420px){
+    .title{font-size:20px;}
+    .total-strip .value{font-size:24px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="sheet">
+  <div class="header">
+    <div class="header-top">
+      <div>
+        <p class="title">공수표<span class="en">MANHOUR LEDGER</span></p>
+      </div>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><span class="legend-dot half"></span>반일 (0.5)</div>
+      <div class="legend-item"><span class="legend-dot day"></span>주간 (1.0)</div>
+      <div class="legend-item"><span class="legend-dot ot"></span>연장 (1.5)</div>
+      <div class="legend-item"><span class="legend-dot night"></span>야간 (2.0)</div>
+    </div>
+  </div>
+
+  <div class="month-nav">
+    <button id="prevMonth">‹</button>
+    <div class="month-label" id="monthLabel">-</div>
+    <button id="nextMonth">›</button>
+  </div>
+
+  <div class="total-strip" id="totalStrip">
+    <div class="loading">불러오는 중…</div>
+  </div>
+
+  <div class="calendar" id="calendar"></div>
+
+  <!-- 백업/복원 및 홈 화면 바로가기 추가 버튼 -->
+  <div class="mobile-tools">
+    <button id="installApp" class="install-btn">📱 홈 화면에 바로가기 추가</button>
+    <div class="action-row">
+      <button id="kakaoBtn" class="kakao-btn">💬 카톡으로 보내기</button>
+      <button id="shareSite">🔗 앱 링크 공유</button>
+    </div>
+    <div class="action-row">
+      <button id="exportData">데이터 백업</button>
+      <button id="importData">데이터 복원</button>
+    </div>
+    <div class="action-row">
+      <button id="textBackup">글로 백업 · 복원 (카톡 나와의 채팅용)</button>
+    </div>
+    <input type="file" id="importFile" accept="application/json" style="display:none;" />
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="picker">
+    <div class="picker-handle"></div>
+    <div class="picker-date" id="pickerDate">-</div>
+    <div class="picker-options" id="pickerOptions">
+      <div class="picker-opt half" data-type="half">
+        <span class="label-row"><span class="swatch"></span>반일<span class="base-hint">기본 0.5</span></span>
+        <span class="opt-val" data-type="half"></span>
+      </div>
+      <div class="picker-opt day" data-type="day">
+        <span class="label-row"><span class="swatch"></span>주간<span class="base-hint">기본 1.0</span></span>
+        <span class="opt-val" data-type="day"></span>
+      </div>
+      <div class="picker-opt ot" data-type="ot">
+        <span class="label-row"><span class="swatch"></span>연장<span class="base-hint">기본 1.5</span></span>
+        <span class="opt-val" data-type="ot"></span>
+      </div>
+      <div class="picker-opt night" data-type="night">
+        <span class="label-row"><span class="swatch"></span>야간<span class="base-hint">기본 2.0</span></span>
+        <span class="opt-val" data-type="night"></span>
+      </div>
+    </div>
+    <div class="global-adjust">
+      <span class="global-label">선택 항목 값 조정</span>
+      <div class="stepper">
+        <button class="step-btn minus" id="globalMinus">−</button>
+        <span class="step-val" id="globalVal">0.0</span>
+        <button class="step-btn plus" id="globalPlus">+</button>
+      </div>
+    </div>
+    <div class="picker-total" id="pickerTotal">이 날짜 합계: <b>0.0</b> 공수</div>
+    <div class="picker-clear" id="pickerClear">이 날짜 기록 초기화</div>
+    <div class="picker-cancel" id="pickerCancel">닫기</div>
+  </div>
+</div>
+
+<div class="quote-overlay" id="quoteOverlay">
+  <div class="quote-card">
+    <div class="quote-mark">“</div>
+    <p class="quote-text" id="quoteText"></p>
+    <div class="quote-tap">화면을 탭하면 닫혀요</div>
+  </div>
+</div>
+
+
+<div class="modal-overlay" id="kakaoModal">
+  <div class="modal">
+    <h2>카톡으로 보내기</h2>
+    <div class="chips" id="presets">
+      <span class="chip" data-p="month">이번 달</span>
+      <span class="chip" data-p="first">1~15일</span>
+      <span class="chip" data-p="second">16일~말일</span>
+      <span class="chip" data-p="week">최근 7일</span>
+    </div>
+    <label class="f" for="kStart">시작일</label>
+    <input type="date" id="kStart" min="2025-01-01" max="2030-12-31">
+    <label class="f" for="kEnd">종료일</label>
+    <input type="date" id="kEnd" min="2025-01-01" max="2030-12-31">
+    <label class="f" for="kText">보낼 내용 (수정 가능)</label>
+    <textarea id="kText" readonly></textarea>
+    <div class="m-actions">
+      <button id="kCopy">복사</button>
+      <button id="kSend" class="primary">카카오톡으로 보내기</button>
+    </div>
+    <div class="m-note">공유창에서 카카오톡과 채팅방을 고르세요. 공유창이 안 뜨면 내용이 복사되니 카카오톡에서 붙여넣기 하세요.</div>
+    <div class="m-close" id="kClose">닫기</div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="backupModal">
+  <div class="modal">
+    <h2>글로 백업 · 복원</h2>
+    <textarea id="bText" placeholder="복원하려면 백업 글을 여기에 붙여넣으세요"></textarea>
+    <div class="m-actions">
+      <button id="bCopy" class="steel">현재 기록을 글로 복사</button>
+      <button id="bRestore">붙여넣은 글로 복원</button>
+    </div>
+    <div class="m-note">복사한 글을 카톡 "나와의 채팅"에 보관해 두면 폰을 바꾸거나 브라우저 기록을 지워도 복원할 수 있습니다. 같은 주소에서 연 앱끼리만 기록이 공유됩니다.</div>
+    <div class="m-close" id="bClose">닫기</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  // 웹 표준 localStorage 기반 저장소 래퍼 객체 정의
+  const storage = {
+    async get(key, isGlobal) {
+      const val = localStorage.getItem(key);
+      return val ? { value: val } : null;
+    },
+    async set(key, value, isGlobal) {
+      localStorage.setItem(key, value);
+    }
+  };
+
+  const QUOTES = [
+    "정말 많이 힘드셨을 텐데, 여기까지 잘 버텨오셨습니다.",
+    "지금까지 견뎌오신 것만으로도 충분히 대단하십니다.",
+    "많이 힘드셨죠. 이제는 조금 쉬어가셔도 괜찮습니다.",
+    "힘든 시간을 잘 이겨내고 계십니다. 정말 고생 많으셨습니다.",
+    "지금의 어려움도 분명 지나갈 것입니다.",
+    "혼자서 모든 것을 감당하지 않으셔도 됩니다.",
+    "잠시 멈추어 쉬는 것도 앞으로 나아가는 과정입니다.",
+    "지금까지 정말 최선을 다하셨습니다.",
+    "많이 지치셨을 텐데 끝까지 잘 견뎌주셨습니다.",
+    "지금은 힘들어도 분명 좋은 날이 다시 찾아올 것입니다.",
+    "괜찮습니다. 조금 늦어도 전혀 늦지 않았습니다.",
+    "오늘 하루를 버텨내신 것만으로도 충분합니다.",
+    "힘든 만큼 앞으로는 더 단단해지실 겁니다.",
+    "지금의 고생이 결코 헛되지 않을 것입니다.",
+    "어려운 일을 겪으면서도 잘 버티고 계신 것이 대단합니다.",
+    "모든 것을 한꺼번에 해결하려 하지 않으셔도 됩니다.",
+    "한 걸음씩 천천히 나아가시면 됩니다.",
+    "힘드실 때는 잠시 기대셔도 괜찮습니다.",
+    "지금의 자신을 너무 탓하지 않으셨으면 좋겠습니다.",
+    "정말 고생 많으셨습니다. 충분히 잘하고 계십니다.",
+    "힘든 일이 있었던 만큼 앞으로는 웃을 일이 더 많아지길 바랍니다.",
+    "지금까지 걸어오신 길을 절대 가볍게 생각하지 않으셨으면 합니다.",
+    "아무리 긴 밤도 결국 아침은 찾아옵니다.",
+    "지금 보이지 않는다고 해서 길이 없는 것은 아닙니다.",
+    "조금 쉬었다가 다시 시작하셔도 늦지 않습니다.",
+    "넘어지셔도 괜찮습니다. 다시 일어나시면 됩니다.",
+    "힘들다고 약한 것이 아닙니다.",
+    "눈물이 난다면 마음껏 우셔도 괜찮습니다.",
+    "잘 견디고 계십니다. 조금만 더 힘내셨으면 좋겠습니다.",
+    "지금의 어려움이 앞으로의 큰 힘이 될 것입니다.",
+    "그동안 정말 많이 애쓰셨습니다.",
+    "누구보다 열심히 버티고 계신 것 같습니다.",
+    "지금은 결과보다 자신을 돌보는 것이 먼저입니다.",
+    "모든 일이 한 번에 좋아질 필요는 없습니다.",
+    "하루하루 조금씩 나아지시면 됩니다.",
+    "지금까지 해오신 것만으로도 충분히 자랑스러운 일입니다.",
+    "힘든 순간에도 포기하지 않는 모습이 정말 대단합니다.",
+    "앞으로는 지금보다 편안한 날들이 찾아오길 바랍니다.",
+    "분명 지금보다 좋은 날이 올 것입니다.",
+    "끝까지 포기하지 않으셨으면 좋겠습니다.",
+    "힘든 시간을 보내고 계신 만큼 자신에게 조금 더 따뜻하셨으면 합니다.",
+    "지금은 잠시 쉬어가도 괜찮은 때입니다.",
+    "모든 일이 뜻대로 되지 않아도 괜찮습니다.",
+    "잘하고 있습니다. 생각하시는 것보다 훨씬 잘하고 계십니다.",
+    "지금의 힘든 시간이 인생의 전부는 아닙니다.",
+    "앞으로 펼쳐질 좋은 날들을 꼭 만나셨으면 좋겠습니다.",
+    "힘든 일을 겪으신 만큼 더 좋은 일이 찾아오길 바랍니다.",
+    "지금까지 버텨오신 자신을 꼭 칭찬해 주셨으면 합니다.",
+    "혼자가 아니라는 것을 꼭 기억해 주세요.",
+    "정말 수고 많으셨습니다. 이제 조금 편해지셨으면 좋겠습니다.",
+    "힘든 순간일수록 자신을 믿어주셨으면 좋겠습니다.",
+    "지금의 아픔도 언젠가는 지나간 시간이 될 것입니다.",
+    "오늘보다 내일 조금 더 웃으실 수 있기를 바랍니다.",
+    "힘든 일이 있었다고 해서 앞으로도 힘들 것이라는 뜻은 아닙니다.",
+    "지금까지 잘해오셨으니 앞으로도 잘해내실 겁니다.",
+    "조금 천천히 가셔도 괜찮습니다.",
+    "때로는 쉬어가는 것이 가장 현명한 선택일 수 있습니다.",
+    "지금의 노력은 언젠가 반드시 의미가 있을 것입니다.",
+    "힘든 만큼 마음도 많이 지치셨을 텐데, 정말 고생 많으셨습니다.",
+    "앞으로는 좋은 일만 가득하시길 진심으로 바랍니다.",
+    "지금까지 포기하지 않고 버텨주셔서 정말 대단합니다.",
+    "힘든 일을 이겨내는 데에는 시간이 필요합니다. 서두르지 않으셔도 됩니다.",
+    "괜찮아지는 데 정해진 시간은 없습니다.",
+    "지금 느끼는 감정도 모두 자연스러운 것입니다.",
+    "힘들 때는 잠시 기대어 가셔도 됩니다.",
+    "다시 웃을 수 있는 날이 반드시 올 것입니다.",
+    "지금의 힘든 시간이 지나면 분명 한층 더 강해져 계실 겁니다.",
+    "아무리 어려워도 지금까지 잘해오셨습니다.",
+    "앞으로 나아갈 힘은 이미 충분히 가지고 계십니다.",
+    "정말 많이 애쓰셨습니다. 이제는 자신도 조금 챙겨주세요.",
+    "모든 것이 완벽할 필요는 없습니다.",
+    "오늘 하루를 잘 보내는 것부터 시작하셔도 됩니다.",
+    "작은 걸음이라도 계속 나아가고 계신다면 충분합니다.",
+    "지금 힘든 것은 그만큼 열심히 살아왔다는 증거이기도 합니다.",
+    "스스로에게 너무 엄격하지 않으셨으면 좋겠습니다.",
+    "잘 버티고 계십니다. 정말 대단하십니다.",
+    "힘든 날이 지나면 분명 따뜻한 날도 찾아옵니다.",
+    "지금의 선택과 노력이 언젠가 좋은 결과로 돌아오길 바랍니다.",
+    "앞으로는 조금 더 행복하셨으면 좋겠습니다.",
+    "지금까지 정말 고생 많으셨습니다.",
+    "아무리 힘든 순간도 영원히 지속되지는 않습니다.",
+    "지금은 보이지 않아도 분명 출구는 있습니다.",
+    "다시 시작하기에 늦은 때는 없습니다.",
+    "오늘 넘어졌다면 내일 다시 일어나시면 됩니다.",
+    "힘든 일을 겪었다고 해서 실패한 것은 아닙니다.",
+    "오히려 이런 시간을 지나며 더 강해지고 계신 겁니다.",
+    "지금까지 잘 견뎌오신 자신을 믿어주세요.",
+    "앞으로의 날들은 지금보다 더 나아질 것입니다.",
+    "부디 자신을 포기하지 않으셨으면 좋겠습니다.",
+    "지금까지의 노력이 절대 헛되지 않았습니다.",
+    "많이 힘드셨을 텐데 정말 잘 버티셨습니다.",
+    "이제는 좋은 일들이 하나씩 찾아오길 진심으로 바랍니다.",
+    "힘든 만큼 반드시 다시 웃을 날이 올 것입니다.",
+    "지금의 고생이 훗날 큰 힘이 되어줄 것입니다.",
+    "조금 부족해도 괜찮고, 조금 느려도 괜찮습니다.",
+    "지금의 자신도 충분히 잘하고 있습니다.",
+    "어떤 순간에도 자신을 잃지 않으셨으면 좋겠습니다.",
+    "지금까지의 모든 노력이 좋은 결실로 이어지길 바랍니다.",
+    "힘든 시간을 지나고 계신 모든 순간을 진심으로 응원하겠습니다.",
+    "정말 고생 많으셨습니다. 지금까지 잘 버텨오신 만큼, 앞으로는 좋은 날만 가득하시길 진심으로 바랍니다.",
+    "이 또한 지나가리라. — 고대 페르시아 격언",
+    "겨울이 오면 봄도 머지않으리. — 퍼시 비시 셸리",
+    "성공은 최종적인 것이 아니며, 실패는 치명적인 것이 아니다. 계속 나아갈 용기가 중요하다. — 윈스턴 처칠",
+    "인생은 가까이서 보면 비극이고, 멀리서 보면 희극이다. — 찰리 채플린",
+    "어려움은 사람을 단련시킨다. — 세네카",
+    "우리를 죽이지 못하는 것은 우리를 더 강하게 만든다. — 프리드리히 니체",
+    "가장 어두운 밤도 끝나고 태양은 떠오른다. — 빅토르 위고",
+    "폭풍은 나무의 뿌리를 더 깊게 만든다. — 속담",
+    "인내는 쓰지만 그 열매는 달다. — 장 자크 루소",
+    "넘어지는 것은 실패가 아니다. 일어나지 않는 것이 실패다. — 전통적 격언",
+    "어려움 한가운데에 기회가 있다. — 알베르트 아인슈타인",
+    "인내할 수 있는 사람은 자신이 원하는 것을 얻을 수 있다. — 벤저민 프랭클린",
+    "한 걸음씩 걷다 보면 길이 만들어진다. — 전통적 격언",
+    "포기하지 않는 한 실패한 것이 아니다. — 전통적 격언",
+    "삶은 자전거를 타는 것과 같다. 균형을 잡으려면 계속 움직여야 한다. — 알베르트 아인슈타인",
+    "희망은 어둠 속에서도 빛을 볼 수 있게 한다. — 데스몬드 투투",
+    "아무리 느려도 멈추지 않는 것이 중요하다. — 공자",
+    "천 리 길도 한 걸음부터 시작된다. — 노자",
+    "상처는 빛이 들어오는 곳이다. — 루미",
+    "밤이 깊을수록 새벽은 가까워진다.",
+    "비가 온 뒤에는 땅이 단단해진다.",
+    "오늘 흘린 땀은 내일의 든든한 밑천이 됩니다.",
+    "현장에서 보내신 하루하루가 누군가의 집이 되고 길이 됩니다.",
+    "당신의 손끝에서 세상이 만들어지고 있습니다.",
+    "오늘도 안전하게 마무리하신 것이 가장 큰 성과입니다.",
+    "무거운 하루였지만 잘 해내셨습니다.",
+    "몸이 먼저입니다. 오늘은 푹 쉬시길 바랍니다.",
+    "땀 흘린 만큼 정직하게 쌓이는 하루입니다.",
+    "묵묵히 해내는 사람이 가장 단단합니다.",
+    "오늘의 수고가 가족의 웃음이 됩니다.",
+    "한 장 한 장 쌓은 하루가 한 달이 되고 한 해가 됩니다.",
+    "고된 하루 끝, 따뜻한 밥 한 끼 꼭 챙기세요.",
+    "오늘도 무사히 퇴근하신 것에 감사한 하루입니다.",
+    "기록은 내가 얼마나 열심히 살았는지 보여주는 증거입니다.",
+    "쉬는 것도 일의 일부입니다. 충분히 쉬세요.",
+    "오늘 하루도 정말 수고 많으셨습니다.",
+    "꾸준함은 어떤 재능보다 강합니다.",
+    "한 달을 채운 당신의 성실함은 대단합니다.",
+    "힘든 일을 해내는 당신이 멋집니다.",
+    "내일도 오늘처럼, 하지만 조금 더 가볍게 시작하세요.",
+    "당신이 만든 결과는 오래도록 남습니다.",
+    "피곤한 몸에 감사하고, 잘 쉬게 해주세요.",
+    "오늘의 공수 한 칸이 미래의 한 걸음입니다.",
+    "차곡차곡 쌓이는 기록이 든든한 버팀목이 됩니다.",
+    "오늘도 최선을 다한 자신에게 박수를 보냅니다.",
+    "하루를 마치고 돌아갈 곳이 있다는 것은 큰 행복입니다.",
+    "어깨의 짐을 잠시 내려놓으셔도 괜찮습니다.",
+    "작은 성실이 모여 큰 신뢰가 됩니다.",
+    "오늘 무리하지 않으셨다면 그것으로 충분합니다.",
+    "힘든 만큼 보람도 크게 돌아오길 바랍니다.",
+    "당신의 하루는 누군가에게 꼭 필요한 하루였습니다.",
+    "지치는 날에는 잠깐 하늘을 올려다보세요.",
+    "스스로를 대견하게 여기셔도 좋습니다.",
+    "꾸준히 출근하는 것만으로도 대단한 일입니다.",
+    "이번 달도 잘 걸어오셨습니다.",
+    "다음 달에는 더 건강하고 여유로우시길 바랍니다.",
+    "오늘 하루만큼은 스스로에게 후하게 점수를 주세요.",
+    "몸을 아끼는 사람이 오래 갑니다.",
+    "한 걸음 한 걸음이 결국 목적지에 닿게 합니다.",
+    "비 오는 날도 눈 오는 날도 해내신 당신이 대단합니다.",
+    "오늘의 피로는 내일의 단잠이 풀어줄 것입니다.",
+    "묵묵한 노력은 언젠가 꼭 빛을 봅니다.",
+    "무엇이든 처음은 서툴지만 계속하면 능숙해집니다.",
+    "지금 쌓는 경험이 가장 큰 재산이 됩니다.",
+    "하루 일과를 마친 지금, 깊게 숨 한 번 쉬어 보세요.",
+    "당신이 있어서 현장이 돌아갑니다.",
+    "쉬는 날에는 일 생각을 잠시 내려놓으셔도 됩니다.",
+    "좋은 하루가 모여 좋은 한 해가 됩니다.",
+    "오늘의 기록이 내일의 자신감이 됩니다.",
+    "땀방울은 배신하지 않습니다.",
+    "성실함은 가장 확실한 투자입니다.",
+    "힘들었던 만큼 오늘 밤은 편안하시길 바랍니다.",
+    "잠깐의 휴식이 내일의 능률을 만듭니다.",
+    "완벽한 하루가 아니어도 충분히 좋은 하루였습니다.",
+    "하루를 잘 마무리한 당신께 따뜻한 응원을 보냅니다.",
+    "일한 만큼 당당하게 쉬셔도 됩니다.",
+    "오늘도 한 칸 채우셨습니다. 잘하셨습니다.",
+    "작은 기록도 모이면 큰 이야기가 됩니다.",
+    "어려운 일도 하나씩 하면 끝이 보입니다.",
+    "조급해하지 않아도 괜찮습니다. 이미 잘 가고 계십니다.",
+    "오늘의 노력이 가족의 내일을 지켜줍니다.",
+    "지금 이 순간에도 당신은 성장하고 있습니다.",
+    "쉬어야 오래 일할 수 있습니다.",
+    "피곤하다는 건 열심히 살았다는 뜻입니다.",
+    "힘든 날일수록 따뜻한 물에 몸을 풀어주세요.",
+    "스스로를 믿는 마음이 가장 큰 도구입니다.",
+    "함께 일하는 동료도 당신 덕분에 힘을 얻습니다.",
+    "오늘 하루, 한 가지라도 잘한 일을 떠올려 보세요.",
+    "계획한 대로 되지 않아도 괜찮습니다. 내일이 있습니다.",
+    "꾸준한 기록은 나를 지키는 방패가 됩니다.",
+    "고된 날에도 웃을 수 있는 이유를 찾아보세요.",
+    "몸도 마음도 충분히 쉬어야 다시 달릴 수 있습니다.",
+    "오늘의 땀이 값진 월급으로 돌아옵니다.",
+    "이번 달 공수도 알차게 채우셨습니다.",
+    "누구도 대신할 수 없는 일을 하고 계십니다.",
+    "힘이 들 때는 처음 시작하던 마음을 떠올려 보세요.",
+    "자신의 속도로 가셔도 충분합니다.",
+    "오늘도 무탈하게 하루를 마쳤음에 감사합니다.",
+    "마음 편히 주무시고 내일 또 힘내세요.",
+    "건강이 가장 큰 재산입니다. 꼭 챙기세요.",
+    "한 달의 끝에서 스스로를 칭찬해 주세요.",
+    "바쁜 하루 속에서도 당신 자신을 잊지 마세요.",
+    "앞으로도 지금처럼만 하시면 충분합니다."
+  ];
+
+  const TYPES = {
+    half:  { label:"반일", base:0.5 },
+    day:   { label:"주간", base:1.0 },
+    ot:    { label:"연장", base:1.5 },
+    night: { label:"야간", base:2.0 }
+  };
+  const TYPE_ORDER = ["half","day","ot","night"];
+  const STEP = 0.5;
+  const MAX_VAL = 4.0;
+  const MIN_YM = {y:2025, m:1};   // 2025-01
+  const MAX_YM = {y:2030, m:12};  // 2030-12
+
+  let curY = 2026, curM = 11;
+  let monthData = {};
+  let pickerDateStr = null;
+  let pickerRecord = null;
+  let deferredPrompt = null;
+
+  function pad(n){ return String(n).padStart(2,'0'); }
+  function dateStr(y,m,d){ return `${y}-${pad(m)}-${pad(d)}`; }
+  function monthKey(y,m){ return `gs-month:${y}-${pad(m)}`; }
+  function emptyRecord(){ return { half:0, day:0, ot:0, night:0 }; }
+  function recordTotal(rec){
+    if(!rec) return 0;
+    return TYPE_ORDER.reduce((s,t)=> s + (Number(rec[t])||0), 0);
+  }
+  function activeTypes(rec){
+    if(!rec) return [];
+    return TYPE_ORDER.filter(t => (Number(rec[t])||0) > 0);
+  }
+
+  function showToast(msg){
+    const t=document.getElementById('toast');
+    t.textContent=msg; t.classList.add('show');
+    setTimeout(()=>t.classList.remove('show'),2500);
+  }
+
+  async function loadMonth(y,m){
+    try{
+      const res = await storage.get(monthKey(y,m), false);
+      if(res && res.value){ return JSON.parse(res.value); }
+    }catch(e){ /* not found */ }
+    return {};
+  }
+  async function saveMonth(y,m,data){
+    try{
+      await storage.set(monthKey(y,m), JSON.stringify(data), false);
+    }catch(e){ showToast("저장 실패 – 다시 시도해주세요"); console.error(e); }
+  }
+
+  function ymLabel(y,m){ return `${y}년 ${m}월`; }
+  function isAtMin(y,m){ return y===MIN_YM.y && m===MIN_YM.m; }
+  function isAtMax(y,m){ return y===MAX_YM.y && m===MAX_YM.m; }
+
+  function renderTotal(){
+    let total = 0;
+    const sums = { half:0, day:0, ot:0, night:0 };
+    Object.values(monthData).forEach(rec=>{
+      TYPE_ORDER.forEach(t=>{
+        const v = Number(rec[t])||0;
+        sums[t] += v;
+        total += v;
+      });
+    });
+    const el = document.getElementById('totalStrip');
+    el.innerHTML = `
+      <div>
+        <div class="label">${ymLabel(curY,curM)} 총 공수</div>
+        <div class="value">${total.toFixed(1)}<span class="unit">공수</span></div>
+      </div>
+      <div class="total-breakdown">
+        <span>반일 <b>${sums.half.toFixed(1)}</b></span>
+        <span>주간 <b>${sums.day.toFixed(1)}</b></span>
+        <span>연장 <b>${sums.ot.toFixed(1)}</b></span>
+        <span>야간 <b>${sums.night.toFixed(1)}</b></span>
+      </div>
+    `;
+  }
+
+  function renderCalendar(){
+    const el = document.getElementById('calendar');
+    const dowNames = ['일','월','화','수','목','금','토'];
+    let html = `<div class="dow-row">${dowNames.map(d=>`<div>${d}</div>`).join('')}</div>`;
+    html += `<div class="day-grid">`;
+
+    const firstDow = new Date(curY, curM-1, 1).getDay();
+    const daysInMonth = new Date(curY, curM, 0).getDate();
+
+    const today = new Date();
+    const isCurrentMonth = today.getFullYear()===curY && (today.getMonth()+1)===curM;
+
+    for(let i=0;i<firstDow;i++){
+      html += `<div class="day-cell empty"></div>`;
+    }
+    for(let d=1; d<=daysInMonth; d++){
+      const dow = new Date(curY, curM-1, d).getDay();
+      const ds = dateStr(curY,curM,d);
+      const rec = monthData[ds];
+      const active = activeTypes(rec);
+      const total = recordTotal(rec);
+      let cls = "day-cell";
+      if(dow===0) cls += " sunday";
+      if(isCurrentMonth && today.getDate()===d) cls += " today";
+      if(active.length===1) cls += ` filled ${active[0]}`;
+      else if(active.length>1) cls += ` filled mixed`;
+      html += `<div class="${cls}" data-date="${ds}" data-day="${d}">
+        <span class="num">${d}</span>
+        ${total>0 ? `<span class="tag">${total.toFixed(1)}</span>` : ''}
+      </div>`;
+    }
+    el.innerHTML = html;
+
+    el.querySelectorAll('.day-cell[data-date]').forEach(cell=>{
+      cell.onclick = ()=> openPicker(cell.getAttribute('data-date'), cell.getAttribute('data-day'));
+    });
+  }
+
+  function getSelectedType(){
+    return TYPE_ORDER.find(t => (Number(pickerRecord[t])||0) > 0) || null;
+  }
+
+  function renderPicker(){
+    const selected = getSelectedType();
+    TYPE_ORDER.forEach(t=>{
+      const val = Number(pickerRecord[t])||0;
+      document.querySelector(`.picker-opt[data-type="${t}"]`).classList.toggle('active', val>0);
+      document.querySelector(`.opt-val[data-type="${t}"]`).textContent = val>0 ? val.toFixed(1) : '';
+    });
+    const gVal = selected ? Number(pickerRecord[selected])||0 : 0;
+    document.getElementById('globalVal').textContent = gVal.toFixed(1);
+    document.getElementById('globalMinus').disabled = !selected;
+    document.getElementById('globalPlus').disabled = !selected;
+    document.getElementById('pickerTotal').innerHTML =
+      `이 날짜 합계: <b>${recordTotal(pickerRecord).toFixed(1)}</b> 공수`;
+  }
+
+  function openPicker(ds, dayNum){
+    pickerDateStr = ds;
+    pickerRecord = Object.assign(emptyRecord(), monthData[ds] || {});
+    document.getElementById('pickerDate').textContent = `${curY}년 ${curM}월 ${dayNum}일`;
+    renderPicker();
+    document.getElementById('overlay').classList.add('show');
+  }
+
+  async function persistPicker(){
+    if(!pickerDateStr) return;
+    if(recordTotal(pickerRecord) > 0){
+      monthData[pickerDateStr] = Object.assign({}, pickerRecord);
+    } else {
+      delete monthData[pickerDateStr];
+    }
+    await saveMonth(curY, curM, monthData);
+    renderCalendar();
+    renderTotal();
+  }
+
+  function showQuote(){
+    const q = QUOTES[Math.floor(Math.random()*QUOTES.length)];
+    document.getElementById('quoteText').textContent = q;
+    document.getElementById('quoteOverlay').classList.add('show');
+  }
+
+  document.getElementById('quoteOverlay').onclick = ()=>{
+    document.getElementById('quoteOverlay').classList.remove('show');
+  };
+
+  function closePicker(){
+    document.getElementById('overlay').classList.remove('show');
+    pickerDateStr = null;
+    pickerRecord = null;
+    setTimeout(showQuote, 200);
+  }
+
+  document.querySelectorAll('.picker-opt').forEach(opt=>{
+    opt.onclick = async ()=>{
+      if(!pickerRecord) return;
+      const type = opt.getAttribute('data-type');
+      const cur = Number(pickerRecord[type])||0;
+      TYPE_ORDER.forEach(t=>{ pickerRecord[t] = 0; });
+      if(cur === 0){
+        pickerRecord[type] = TYPES[type].base;
+      }
+      renderPicker();
+      await persistPicker();
+    };
+  });
+
+  document.getElementById('globalPlus').onclick = async ()=>{
+    const type = getSelectedType();
+    if(!type) return;
+    let next = Math.min(MAX_VAL, (Number(pickerRecord[type])||0) + STEP);
+    pickerRecord[type] = next;
+    renderPicker();
+    await persistPicker();
+  };
+  document.getElementById('globalMinus').onclick = async ()=>{
+    const type = getSelectedType();
+    if(!type) return;
+    let next = Math.max(0, (Number(pickerRecord[type])||0) - STEP);
+    pickerRecord[type] = next;
+    renderPicker();
+    await persistPicker();
+  };
+  document.getElementById('pickerClear').onclick = async ()=>{
+    if(!pickerDateStr) return;
+    pickerRecord = emptyRecord();
+    renderPicker();
+    await persistPicker();
+  };
+  document.getElementById('pickerCancel').onclick = closePicker;
+  document.getElementById('overlay').onclick = (e)=>{
+    if(e.target.id === 'overlay') closePicker();
+  };
+
+  async function goToMonth(y,m){
+    curY = y; curM = m;
+    document.getElementById('monthLabel').textContent = ymLabel(y,m);
+    document.getElementById('prevMonth').disabled = isAtMin(y,m);
+    document.getElementById('nextMonth').disabled = isAtMax(y,m);
+    document.getElementById('totalStrip').innerHTML = '<div class="loading">불러오는 중…</div>';
+    monthData = await loadMonth(y,m);
+    renderTotal();
+    renderCalendar();
+  }
+
+  document.getElementById('prevMonth').onclick = ()=>{
+    if(isAtMin(curY,curM)) return;
+    let y=curY, m=curM-1;
+    if(m<1){ m=12; y--; }
+    goToMonth(y,m);
+  };
+  document.getElementById('nextMonth').onclick = ()=>{
+    if(isAtMax(curY,curM)) return;
+    let y=curY, m=curM+1;
+    if(m>12){ m=1; y++; }
+    goToMonth(y,m);
+  };
+
+  // 백업 및 복원
+  document.getElementById('exportData').onclick = ()=>{
+    const data = {};
+    for(let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if(k && k.startsWith('gs-month:')) data[k] = localStorage.getItem(k);
+    }
+    const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '공수표-백업.json';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    showToast("백업 파일을 저장했습니다");
+  };
+
+  document.getElementById('importData').onclick = ()=>{
+    document.getElementById('importFile').click();
+  };
+
+  document.getElementById('importFile').onchange = async (e)=>{
+    const file = e.target.files && e.target.files[0];
+    if(!file) return;
+    try{
+      const data = JSON.parse(await file.text());
+      let count = 0;
+      Object.entries(data).forEach(([k,v])=>{
+        if(k.startsWith('gs-month:')){
+          localStorage.setItem(k, v);
+          count++;
+        }
+      });
+      await goToMonth(curY,curM);
+      showToast(`${count}개월 데이터를 복원했습니다`);
+    }catch(err){
+      showToast("복원 파일을 읽지 못했습니다");
+      console.error(err);
+    }
+    e.target.value = "";
+  };
+
+
+  // ---------- 공통 유틸 ----------
+  const DOW = ['일','월','화','수','목','금','토'];
+  function iso(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+  function fromIso(v){ const [y,m,d]=v.split('-').map(Number); return new Date(y,m-1,d); }
+  function loadMonthSync(y,m){
+    try{ const v = localStorage.getItem(monthKey(y,m)); return v ? JSON.parse(v) : {}; }catch(e){ return {}; }
+  }
+  async function copyText(text){
+    try{
+      if(navigator.clipboard && window.isSecureContext){ await navigator.clipboard.writeText(text); return true; }
+    }catch(e){}
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    let ok=false; try{ ok = document.execCommand('copy'); }catch(e){}
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  // ---------- 카톡 보내기 ----------
+  function buildSummary(startIso, endIso){
+    const s0 = fromIso(startIso), e0 = fromIso(endIso);
+    const cache = {};
+    const lines = [];
+    const sums = {half:0,day:0,ot:0,night:0};
+    let total = 0, days = 0;
+    for(let d=new Date(s0); d<=e0; d.setDate(d.getDate()+1)){
+      const key = `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+      if(!(key in cache)) cache[key] = loadMonthSync(d.getFullYear(), d.getMonth()+1);
+      const rec = cache[key][iso(d)];
+      const t = recordTotal(rec);
+      if(t>0){
+        const names = activeTypes(rec).map(k=>TYPES[k].label).join('+');
+        lines.push(`${d.getMonth()+1}/${d.getDate()}(${DOW[d.getDay()]}) ${names} ${t.toFixed(1)}`);
+        TYPE_ORDER.forEach(k=>{ sums[k]+=Number(rec[k])||0; });
+        total += t; days++;
+      }
+    }
+    const f = v => { const x=fromIso(v); return `${x.getFullYear()}.${pad(x.getMonth()+1)}.${pad(x.getDate())}`; };
+    let out = `[공수표] ${f(startIso)} ~ ${f(endIso)}\n\n`;
+    out += lines.length ? lines.join('\n') : '(기록 없음)';
+    out += `\n\n― 항목별 ―\n반일 ${sums.half.toFixed(1)} / 주간 ${sums.day.toFixed(1)} / 연장 ${sums.ot.toFixed(1)} / 야간 ${sums.night.toFixed(1)}\n근무일수 ${days}일\n총 공수 ${total.toFixed(1)}`;
+    return out;
+  }
+  function clampIso(v){
+    const lo='2025-01-01', hi='2030-12-31';
+    return v<lo ? lo : v>hi ? hi : v;
+  }
+  function refreshSummary(){
+    const a = document.getElementById('kStart').value, b = document.getElementById('kEnd').value;
+    const box = document.getElementById('kText');
+    if(!a || !b){ box.value=''; return; }
+    if(a>b){ box.value='시작일이 종료일보다 늦습니다.'; return; }
+    box.value = buildSummary(a,b);
+  }
+  function applyPreset(p){
+    const t = new Date();
+    let s0, e0;
+    if(p==='month'){ s0=new Date(curY,curM-1,1); e0=new Date(curY,curM,0); }
+    else if(p==='first'){ s0=new Date(curY,curM-1,1); e0=new Date(curY,curM-1,15); }
+    else if(p==='second'){ s0=new Date(curY,curM-1,16); e0=new Date(curY,curM,0); }
+    else { e0=new Date(t.getFullYear(),t.getMonth(),t.getDate()); s0=new Date(e0); s0.setDate(s0.getDate()-6); }
+    document.getElementById('kStart').value = clampIso(iso(s0));
+    document.getElementById('kEnd').value = clampIso(iso(e0));
+    refreshSummary();
+  }
+  document.getElementById('kakaoBtn').onclick = ()=>{
+    document.getElementById('kakaoModal').classList.add('show');
+    applyPreset('month');
+  };
+  document.querySelectorAll('#presets .chip').forEach(c=> c.onclick = ()=> applyPreset(c.dataset.p));
+  document.getElementById('kStart').onchange = refreshSummary;
+  document.getElementById('kEnd').onchange = refreshSummary;
+  document.getElementById('kClose').onclick = ()=> document.getElementById('kakaoModal').classList.remove('show');
+  document.getElementById('kakaoModal').onclick = (e)=>{ if(e.target.id==='kakaoModal') e.target.classList.remove('show'); };
+  document.getElementById('kCopy').onclick = async ()=>{
+    const ok = await copyText(document.getElementById('kText').value);
+    showToast(ok ? "복사했습니다. 카톡에 붙여넣기 하세요" : "복사하지 못했습니다. 글을 길게 눌러 복사하세요");
+  };
+  document.getElementById('kSend').onclick = async ()=>{
+    const text = document.getElementById('kText').value;
+    if(!text || text.startsWith('시작일이')) return;
+    if(navigator.share){
+      try{ await navigator.share({ text }); return; }
+      catch(e){ if(e && e.name==='AbortError') return; }
+    }
+    const ok = await copyText(text);
+    showToast(ok ? "복사했습니다. 카카오톡을 열어 붙여넣기 하세요" : "공유에 실패했습니다");
+    setTimeout(()=>{ location.href = 'kakaotalk://launch'; }, 700);
+  };
+
+  // ---------- 앱 링크 공유 ----------
+  document.getElementById('shareSite').onclick = async ()=>{
+    const url = location.href.split('#')[0].split('?')[0];
+    const data = { title:'공수표', text:'공수표 - 현장 공수 기록 (설치 없이 링크로 사용, 오프라인 지원)', url };
+    if(navigator.share){
+      try{ await navigator.share(data); return; }
+      catch(e){ if(e && e.name==='AbortError') return; }
+    }
+    const ok = await copyText(url);
+    showToast(ok ? "링크를 복사했습니다. 카톡에 붙여넣기 하세요" : url);
+  };
+
+  // ---------- 글로 백업/복원 ----------
+  function collectBackup(){
+    const data = {};
+    for(let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if(k && k.startsWith('gs-month:')) data[k] = localStorage.getItem(k);
+    }
+    return data;
+  }
+  document.getElementById('bClose').onclick = ()=> document.getElementById('backupModal').classList.remove('show');
+  document.getElementById('backupModal').onclick = (e)=>{ if(e.target.id==='backupModal') e.target.classList.remove('show'); };
+  document.getElementById('bCopy').onclick = async ()=>{
+    const text = 'GONGSUPYO-BACKUP\n' + JSON.stringify(collectBackup());
+    const ok = await copyText(text);
+    showToast(ok ? "백업 글을 복사했습니다. 카톡 나와의 채팅에 붙여넣어 보관하세요" : "복사하지 못했습니다");
+  };
+  document.getElementById('bRestore').onclick = async ()=>{
+    const raw = document.getElementById('bText').value.trim().replace(/^GONGSUPYO-BACKUP\s*/,'');
+    try{
+      const data = JSON.parse(raw);
+      let count = 0;
+      Object.entries(data).forEach(([k,v])=>{
+        if(k.startsWith('gs-month:') && typeof v==='string'){ localStorage.setItem(k, v); count++; }
+      });
+      document.getElementById('bText').value='';
+      document.getElementById('backupModal').classList.remove('show');
+      await goToMonth(curY,curM);
+      showToast(`${count}개월 데이터를 복원했습니다`);
+    }catch(err){ showToast("복원할 글을 읽지 못했습니다"); }
+  };
+  document.getElementById('textBackup').onclick = ()=> document.getElementById('backupModal').classList.add('show');
+
+  // PWA 홈 화면 바로가기 추가 처리
+  const installBtn = document.getElementById('installApp');
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+
+  if (!isStandalone) {
+    installBtn.style.display = 'block';
+  }
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    installBtn.style.display = 'block';
+  });
+
+  installBtn.onclick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        installBtn.style.display = 'none';
+      }
+      deferredPrompt = null;
+    } else {
+      const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      if (isiOS) {
+        showToast("Safari 하단 [공유] 버튼 클릭 후 '홈 화면에 추가'를 눌러주세요.");
+      } else {
+        showToast("브라우저 메뉴(⋮)에서 '홈 화면에 추가' 또는 '앱 설치'를 눌러주세요.");
+      }
+    }
+  };
+
+  // 초기화
+  (async function init(){
+    const today = new Date();
+    let y = today.getFullYear(), m = today.getMonth()+1;
+    if(y < MIN_YM.y || (y===MIN_YM.y && m<MIN_YM.m)){ y=MIN_YM.y; m=MIN_YM.m; }
+    if(y > MAX_YM.y || (y===MAX_YM.y && m>MAX_YM.m)){ y=MAX_YM.y; m=MAX_YM.m; }
+    await goToMonth(y, m);
+  })();
+  if('serviceWorker' in navigator && location.protocol.startsWith('http')){
+    window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js').catch(()=>{}));
+  }
+})();
+</script>
+</body>
+</html>
