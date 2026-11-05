@@ -102,10 +102,21 @@
   <h1>리뷰 <small>REVIEW</small></h1>
   <p class="sub">운동 영상을 고르고, 한 프레임에서 관절을 찍으면 끝까지 따라가며 횟수와 각도를 잽니다. 척추·골반처럼 모델에 없는 점도 직접 찍을 수 있습니다.</p>
   <label class="drop" for="file"><b>영상 선택</b><span>갤러리 · 내 파일 · 바로 촬영</span><input id="file" type="file" accept="video/*" hidden></label>
-  <div class="row"><select id="fpsSel"><option value="30">30 fps 분석</option><option value="15">15 fps 분석 (빠름)</option></select><select id="modelSel"><option value="full">정밀 모델</option><option value="heavy">최고 모델 (느림)</option><option value="lite">빠른 모델</option></select></div>
   <p class="sub" id="homeErr" style="color:var(--bad)"></p>
   <div id="sesList" style="display:flex;flex-direction:column"></div>
   <p class="sub" id="ver"></p>
+</div>
+
+<!-- 1b. trim -->
+<div id="trim" class="screen" hidden>
+  <div class="hh"><button class="back" id="trBack">←</button><h1>구간 정하기</h1></div>
+  <div class="stage"><video id="trVid" playsinline muted></video></div>
+  <div class="scrub"><span class="t" style="min-width:40px;text-align:left">시작</span><input type="range" id="trStart" min="0" max="1000" value="0"><span class="t" id="trStartT">0.0 s</span></div>
+  <div class="scrub"><span class="t" style="min-width:40px;text-align:left">끝</span><input type="range" id="trEnd" min="0" max="1000" value="1000"><span class="t" id="trEndT">0.0 s</span></div>
+  <div class="row"><button id="trPlay">구간 미리보기</button><button id="trAll">전체</button></div>
+  <div class="row"><select id="fpsSel"><option value="30">30 fps 분석</option><option value="15">15 fps 분석 (빠름)</option></select><select id="modelSel"><option value="full">정밀 모델</option><option value="heavy">최고 모델 (느림)</option><option value="lite">빠른 모델</option></select></div>
+  <p class="hint" id="trInfo"></p>
+  <button class="primary" id="trGo">이 구간 분석</button>
 </div>
 
 <!-- 2. extract progress -->
@@ -147,18 +158,19 @@
 </div>
 
 <script type="module">
-const APP_VERSION = "review-2026-10-28a";
+const APP_VERSION = "review-2026-11-05a";
 const $ = id => document.getElementById(id);
 const LS = k => { try { return localStorage.getItem("rv_" + k); } catch { return null; } };
 const SS = (k, v) => { try { localStorage.setItem("rv_" + k, v); } catch {} };
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 $("ver").textContent = "앱 버전 " + APP_VERSION;
+$("fpsSel").onchange = $("modelSel").onchange = () => { if (!$("trim").hidden) updateTrim(); };
 
 // ---------- screens ----------
-const SCREENS = ["home", "extract", "mark", "result"];
+const SCREENS = ["home", "trim", "extract", "mark", "result"];
 function show(id) { for (const s of SCREENS) $(s).hidden = s !== id; if (id !== "home") { try { history.pushState({ s: id }, ""); } catch {} } }
-window.addEventListener("popstate", () => { if (!$("extract").hidden) { cancelExtract = true; } stopPlay(); show("home"); renderSessions(); });
-$("exBack").onclick = $("mkBack").onclick = $("rsBack").onclick = $("rsHome").onclick = () => history.back();
+window.addEventListener("popstate", () => { if (!$("extract").hidden) { cancelExtract = true; } stopPlay(); stopTrimPlay(); show("home"); renderSessions(); });
+$("exBack").onclick = $("trBack").onclick = $("mkBack").onclick = $("rsBack").onclick = $("rsHome").onclick = () => history.back();
 $("exCancel").onclick = () => history.back();
 
 // ---------- pose model ----------
@@ -192,24 +204,47 @@ const PRESETS = [["왼팔꿈치", [11,13,15]], ["오른팔꿈치", [12,14,16]], 
 $("file").onchange = async e => { const f = e.target.files[0]; e.target.value = ""; if (f) await openVideo(f); };
 async function openVideo(file, existing) {
   $("homeErr").textContent = "";
-  const url = URL.createObjectURL(file); const v = $("mkVid"); v.src = url; $("rsVid").src = url;
+  const url = URL.createObjectURL(file); const v = $("mkVid"); v.src = url; $("rsVid").src = url; $("trVid").src = url;
   await new Promise((r, j) => { v.onloadedmetadata = r; v.onerror = () => j(new Error("영상을 열 수 없습니다")); }).catch(e => { $("homeErr").textContent = e.message; return null; });
   if (!v.videoWidth) { $("homeErr").textContent = "영상 정보를 읽지 못했습니다. 다른 형식(mp4)으로 시도해 보세요."; return; }
   if (existing) { S = { ...existing, file, url }; S.vw = v.videoWidth; S.vh = v.videoHeight; openResult(); return; }
-  const fps = +$("fpsSel").value, dur = v.duration, maxSec = 180;
-  if (dur > maxSec) { $("homeErr").textContent = `영상이 너무 깁니다 (${Math.round(dur)}초). 3분 이하로 잘라 주세요.`; return; }
-  const n = Math.floor(dur * fps);
-  S = { id: Date.now().toString(36), name: file.name.replace(/\.[^.]+$/, ""), file, url, fps, frames: n, times: new Float32Array(n), vw: v.videoWidth, vh: v.videoHeight, model: $("modelSel").value, points: [], chains: [], keyframes: {}, tracks: {}, reps: [], countChain: null, at: new Date().toISOString() };
-  for (let i = 0; i < n; i++) S.times[i] = (i + 0.5) / fps;
+  pendingFile = file; openTrim(v.duration);
+}
+// ---------- 1b. trim: only the chosen part is analysed (shorter clip = faster) ----------
+let pendingFile = null, trimPlaying = false;
+const MAX_SEC = 180;
+function openTrim(dur) {
+  trimDur = dur; const st = $("trStart"), en = $("trEnd"); st.value = 0; en.value = 1000;
+  show("trim"); updateTrim(); $("trVid").currentTime = 0;
+}
+let trimDur = 0;
+const trT = () => ({ t0: +$("trStart").value / 1000 * trimDur, t1: +$("trEnd").value / 1000 * trimDur });
+function updateTrim() {
+  const { t0, t1 } = trT(), len = Math.max(0, t1 - t0), fps = +$("fpsSel").value, n = Math.floor(len * fps);
+  $("trStartT").textContent = t0.toFixed(1) + " s"; $("trEndT").textContent = t1.toFixed(1) + " s";
+  const est = Math.ceil(n * ({ lite: 0.06, full: 0.09, heavy: 0.16 }[$("modelSel").value] || 0.09));
+  $("trInfo").textContent = len < 1 ? "끝이 시작보다 뒤여야 합니다" : len > MAX_SEC ? `구간이 너무 깁니다 (${Math.round(len)}초). 3분 이하로 줄여 주세요.` : `${len.toFixed(1)}초 · ${n}프레임 · 예상 ${est < 60 ? est + "초" : Math.ceil(est / 60) + "분"} (폰 성능에 따라 다름)`;
+  $("trGo").disabled = len < 1 || len > MAX_SEC;
+}
+$("trStart").oninput = () => { stopTrimPlay(); if (+$("trStart").value >= +$("trEnd").value) $("trEnd").value = Math.min(1000, +$("trStart").value + 10); $("trVid").currentTime = trT().t0; updateTrim(); };
+$("trEnd").oninput = () => { stopTrimPlay(); if (+$("trEnd").value <= +$("trStart").value) $("trStart").value = Math.max(0, +$("trEnd").value - 10); $("trVid").currentTime = trT().t1; updateTrim(); };
+$("trAll").onclick = () => { stopTrimPlay(); $("trStart").value = 0; $("trEnd").value = 1000; $("trVid").currentTime = 0; updateTrim(); };
+$("trPlay").onclick = () => { if (trimPlaying) { stopTrimPlay(); return; } const v = $("trVid"), { t0, t1 } = trT(); trimPlaying = true; $("trPlay").textContent = "멈춤"; v.currentTime = t0; v.play();
+  const tick = () => { if (!trimPlaying) return; if (v.currentTime >= t1 || v.ended) { stopTrimPlay(); return; } requestAnimationFrame(tick); }; requestAnimationFrame(tick); };
+function stopTrimPlay() { if (!trimPlaying) return; trimPlaying = false; $("trPlay").textContent = "구간 미리보기"; $("trVid").pause(); }
+$("trGo").onclick = async () => {
+  stopTrimPlay(); const v = $("mkVid"), file = pendingFile, { t0, t1 } = trT(), fps = +$("fpsSel").value, n = Math.floor((t1 - t0) * fps); if (n < 2) return;
+  S = { id: Date.now().toString(36), name: file.name.replace(/\.[^.]+$/, ""), file, url: v.src, fps, t0, t1, frames: n, times: new Float32Array(n), vw: v.videoWidth, vh: v.videoHeight, model: $("modelSel").value, points: [], chains: [], keyframes: {}, tracks: {}, reps: [], countChain: null, at: new Date().toISOString() };
+  for (let i = 0; i < n; i++) S.times[i] = t0 + (i + 0.5) / fps;
   // analysis sizes: pose on ~640px, optical flow on a gray copy sized so the whole clip fits in ~150 MB
   const gScale = Math.min(1, Math.sqrt(150e6 / (n * v.videoWidth * v.videoHeight)), 384 / v.videoWidth);
   S.gw = Math.max(96, Math.round(v.videoWidth * gScale)); S.gh = Math.max(96, Math.round(v.videoHeight * gScale));
   const pScale = Math.min(1, 640 / Math.max(v.videoWidth, v.videoHeight)); S.pw = Math.round(v.videoWidth * pScale); S.ph = Math.round(v.videoHeight * pScale);
-  show("extract"); cancelExtract = false;
+  mkFrame = 0; rsFrame = 0; history.back(); await new Promise(r => setTimeout(r, 30)); show("extract"); cancelExtract = false;
   try { await extract(v); } catch (e) { if (!cancelExtract) { $("exMsg").textContent = "읽기 실패: " + e.message; } return; }
   if (cancelExtract) return;
   openMark();
-}
+};
 async function extract(v) {
   $("exPct").textContent = "0%"; $("exBar").style.width = "0"; $("exMsg").textContent = "관절 인식 모델 준비 중…";
   await loadPose(S.model);
@@ -465,7 +500,7 @@ function seekResult(f) { rsFrame = f; $("rsRange").value = f; $("rsT").textConte
   $("repList").querySelectorAll(".repRow[data-f]").forEach(el => { const r = S.reps.find(x => x.startF === +el.dataset.f); el.classList.toggle("cur", r && f >= r.startF && f <= r.endF); }); }
 $("rsRange").oninput = e => { stopPlay(); seekResult(+e.target.value); };
 $("rsPlay").onclick = () => playing ? stopPlay() : startPlay();
-function startPlay() { const v = $("rsVid"); playing = true; $("rsPlay").textContent = "❚❚"; v.currentTime = S.times[rsFrame]; v.play(); const tick = () => { if (!playing) return; const f = Math.min(S.frames - 1, Math.floor(v.currentTime * S.fps)); if (f !== rsFrame) seekResult(f); if (v.ended || f >= S.frames - 1) { stopPlay(); return; } requestAnimationFrame(tick); }; requestAnimationFrame(tick); }
+function startPlay() { const v = $("rsVid"); playing = true; $("rsPlay").textContent = "❚❚"; v.currentTime = S.times[rsFrame]; v.play(); const tick = () => { if (!playing) return; const f = Math.max(0, Math.min(S.frames - 1, Math.floor((v.currentTime - (S.t0 || 0)) * S.fps))); if (f !== rsFrame) seekResult(f); if (v.ended || f >= S.frames - 1 || v.currentTime >= S.t1) { stopPlay(); return; } requestAnimationFrame(tick); }; requestAnimationFrame(tick); }
 function stopPlay() { if (!playing) return; playing = false; $("rsPlay").textContent = "▶"; $("rsVid").pause(); }
 function drawResult() {
   const cv = $("rsCv"), ctx = cv.getContext("2d"), g = fit(cv); ctx.clearRect(0, 0, g.cw, g.ch);
@@ -502,14 +537,14 @@ async function dbAll() { const d = await openDB(); return new Promise((res, rej)
 async function dbDel(id) { const d = await openDB(); return new Promise((res, rej) => { const t = d.transaction("ses", "readwrite"); t.objectStore("ses").delete(id); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
 $("saveBtn").onclick = async () => {
   const tracks = {}; for (const id in S.tracks) tracks[id] = Array.from(S.tracks[id]);
-  const rec = { id: S.id, at: S.at, name: S.name, ex: S.ex, fps: S.fps, frames: S.frames, times: Array.from(S.times), vw: S.vw, vh: S.vh, points: S.points, chains: S.chains, keyframes: S.keyframes, countChain: S.countChain, reps: S.reps, partial: S.partial, thr: S.thr, tracks, angles: Object.fromEntries(Object.entries(S.angles || {}).map(([k, v]) => [k, Array.from(v)])), file: S.file };
+  const rec = { id: S.id, at: S.at, name: S.name, ex: S.ex, fps: S.fps, t0: S.t0, t1: S.t1, frames: S.frames, times: Array.from(S.times), vw: S.vw, vh: S.vh, points: S.points, chains: S.chains, keyframes: S.keyframes, countChain: S.countChain, reps: S.reps, partial: S.partial, thr: S.thr, tracks, angles: Object.fromEntries(Object.entries(S.angles || {}).map(([k, v]) => [k, Array.from(v)])), file: S.file };
   try { await dbPut(rec); $("saveBtn").textContent = "저장됨"; setTimeout(() => $("saveBtn").textContent = "저장", 1500); } catch (e) { alert("저장 실패: " + e.message + " (저장 공간이 부족하면 영상 없이 결과만 저장합니다)"); try { delete rec.file; await dbPut(rec); } catch {} }
 };
 async function renderSessions() {
   let all = []; try { all = await dbAll(); } catch {} const el = $("sesList");
   if (!all.length) { el.innerHTML = '<div class="empty">아직 분석한 영상이 없습니다.</div>'; return; }
   el.innerHTML = ""; for (const s of all.sort((a, b) => b.at.localeCompare(a.at))) { const d = new Date(s.at); const row = document.createElement("div"); row.className = "ses";
-    row.innerHTML = `<div><div class="h">${s.ex || s.name} · ${s.reps.length}회</div><div class="d">${d.toLocaleDateString("ko-KR", { month: "long", day: "numeric" })} · ${s.name} · ${Math.round(s.times[s.frames - 1])}초${s.file ? "" : " · 영상 없음"}</div></div><button class="small danger">지우기</button>`;
+    row.innerHTML = `<div><div class="h">${s.ex || s.name} · ${s.reps.length}회</div><div class="d">${d.toLocaleDateString("ko-KR", { month: "long", day: "numeric" })} · ${s.name} · ${s.t0 != null ? `${s.t0.toFixed(0)}–${s.t1.toFixed(0)}초` : Math.round(s.times[s.frames - 1]) + "초"}${s.file ? "" : " · 영상 없음"}</div></div><button class="small danger">지우기</button>`;
     row.querySelector("button").onclick = async e => { e.stopPropagation(); if (confirm("이 분석을 지울까요?")) { await dbDel(s.id); renderSessions(); } };
     row.onclick = async () => { if (!s.file) { alert("영상이 함께 저장되지 않은 기록입니다. 결과만 볼 수 있는 기능은 곧 추가됩니다."); return; }
       const sess = { ...s, times: Float32Array.from(s.times), tracks: Object.fromEntries(Object.entries(s.tracks).map(([k, v]) => [k, Float32Array.from(v)])), angles: Object.fromEntries(Object.entries(s.angles).map(([k, v]) => [k, Float32Array.from(v)])), lms: () => null, people: [], person: new Int8Array(s.frames).fill(-1) };
